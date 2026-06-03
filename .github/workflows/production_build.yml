@@ -1,0 +1,65 @@
+name: NeuroCalm Production Build & Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # 1. Backend CI (Node.js)
+  backend-test:
+    name: Backend Security & Logic Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        cache-dependency-path: './backend/package-lock.json'
+    - run: npm ci
+    # - run: npm test # Uncomment when Jest tests are written
+
+  # 2. Frontend CI (Flutter Android Build)
+  flutter-android-build:
+    name: Flutter Android APK Build
+    runs-on: ubuntu-latest
+    needs: backend-test # Only build app if backend is stable
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+        
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.19.x'
+        channel: 'stable'
+        
+    - name: Install Dependencies
+      working-directory: ./mobile
+      run: flutter pub get
+      
+    - name: Run Flutter Linting
+      working-directory: ./mobile
+      run: flutter analyze
+      
+    - name: Build Production APK
+      working-directory: ./mobile
+      run: flutter build apk --release
+      
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: release-apk
+        path: mobile/build/app/outputs/flutter-apk/app-release.apk
