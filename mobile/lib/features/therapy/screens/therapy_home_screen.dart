@@ -28,8 +28,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // 🚨 ARCHITECT FIX: Removed Language/Sensory providers to reduce overhead.
-    // This screen is now strictly a structural catalog of tools.
+    // 🚨 ARCHITECT FIX: Watches geoRouterProvider to pull regional dynamic premium requirements cleanly
     final routingState = ref.watch(geoRouterProvider);
     final theme = Theme.of(context);
 
@@ -38,6 +37,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios_new_rounded, color: theme.colorScheme.primary),
           onPressed: () {
@@ -49,15 +49,20 @@ class ToolsLibraryScreen extends ConsumerWidget {
           'Tools Library',
           style: TextStyle(
             color: theme.colorScheme.primary, 
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w900,
             letterSpacing: -0.5,
           ),
         ),
         centerTitle: true,
       ),
       body: routingState.when(
-        loading: () => Center(child: CircularProgressIndicator(color: theme.colorScheme.primary, strokeWidth: 2)),
-        error: (err, stack) => Center(child: Text('Error loading library: $err', style: const TextStyle(color: Colors.red))),
+        loading: () => Center(child: CircularProgressIndicator(color: theme.colorScheme.primary, strokeWidth: 2.5)),
+        error: (err, stack) => Center(
+          child: Text(
+            'Error loading library configuration: $err', 
+            style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+          ),
+        ),
         data: (accessData) => FadeTransitionWidget(
           child: SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
@@ -67,7 +72,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
               children: [
                 Text(
                   'Your complete toolkit for emotional regulation and cognitive behavioral therapy.',
-                  style: theme.textTheme.bodyLarge?.copyWith(color: Colors.grey[600], height: 1.4),
+                  style: theme.textTheme.bodyLarge?.copyWith(color: Colors.grey[600], height: 1.5, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 32),
 
@@ -77,7 +82,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
                 _buildSectionHeader(theme, 'AI Guided Sessions'),
                 const SizedBox(height: 16),
                 
-                // Featured Primary Tool: Voice Therapy
+                // Featured Primary Tool: Voice Therapy Hero Layout
                 GestureDetector(
                   onTap: () {
                     _triggerHeavyHaptic();
@@ -92,9 +97,13 @@ class ToolsLibraryScreen extends ConsumerWidget {
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(28),
                       boxShadow: [
-                        BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10)),
+                        BoxShadow(
+                          color: theme.colorScheme.primary.withValues(alpha: 0.25), 
+                          blurRadius: 20, 
+                          offset: const Offset(0, 10),
+                        ),
                       ],
                     ),
                     child: Row(
@@ -109,12 +118,13 @@ class ToolsLibraryScreen extends ConsumerWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Voice Session', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                              Text('Voice Session', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
                               SizedBox(height: 4),
-                              Text('Talk naturally with AI', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                              Text('Talk naturally with AI', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
                             ],
                           ),
                         ),
+                        const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white54, size: 16),
                       ],
                     ),
                   ),
@@ -127,7 +137,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
                   physics: const NeverScrollableScrollPhysics(),
                   mainAxisSpacing: 16,
                   crossAxisSpacing: 16,
-                  childAspectRatio: 0.9, 
+                  childAspectRatio: 0.95, 
                   children: [
                     _buildGridCard(
                       context,
@@ -152,7 +162,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
                   ],
                 ),
                 
-                const SizedBox(height: 40),
+                const SizedBox(height: 36),
 
                 // ==========================================
                 // SECTION 2: Somatic Grounding
@@ -165,12 +175,12 @@ class ToolsLibraryScreen extends ConsumerWidget {
                   physics: const NeverScrollableScrollPhysics(),
                   mainAxisSpacing: 16,
                   crossAxisSpacing: 16,
-                  childAspectRatio: 0.9, 
+                  childAspectRatio: 0.95, 
                   children: [
                     _buildGridCard(
                       context,
                       title: 'Panic Mode',
-                      subtitle: 'Regulate your breathing',
+                      subtitle: 'Regulate breathing',
                       icon: Icons.waves_rounded,
                       isAlert: true,
                       onTap: () {
@@ -181,7 +191,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
                     _buildGridCard(
                       context,
                       title: 'Sleep Mode',
-                      subtitle: 'Wind down effectively',
+                      subtitle: 'Wind down softly',
                       icon: Icons.nightlight_round, 
                       isDark: true,
                       onTap: () {
@@ -192,7 +202,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
                   ],
                 ),
 
-                const SizedBox(height: 40),
+                const SizedBox(height: 36),
 
                 // ==========================================
                 // SECTION 3: Progress & History
@@ -205,7 +215,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
                   physics: const NeverScrollableScrollPhysics(),
                   mainAxisSpacing: 16,
                   crossAxisSpacing: 16,
-                  childAspectRatio: 0.9, 
+                  childAspectRatio: 0.95, 
                   children: [
                     _buildGridCard(
                       context,
@@ -230,11 +240,14 @@ class ToolsLibraryScreen extends ConsumerWidget {
                   ],
                 ),
                 
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
 
-                // --- INLINE NATIVE ADVANCED AD ---
+                // --- INLINE NATIVE ADVANCED AD MOB GATEWAY ---
                 if (accessData.type == MonetizationType.adSupported)
-                  const NativeAdCard(),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: NativeAdCard(),
+                  ),
                 
                 const SizedBox(height: 40),
               ],
@@ -250,55 +263,87 @@ class ToolsLibraryScreen extends ConsumerWidget {
       title,
       style: TextStyle(
         fontSize: 18,
-        fontWeight: FontWeight.w800,
-        color: theme.colorScheme.primary.withValues(alpha: 0.8),
-        letterSpacing: 0.5,
+        fontWeight: FontWeight.w900,
+        color: theme.colorScheme.primary.withValues(alpha: 0.85),
+        letterSpacing: 0.3,
       ),
     );
   }
 
-  Widget _buildGridCard(BuildContext context, {required String title, required String subtitle, required IconData icon, required VoidCallback onTap, bool isAlert = false, bool isDark = false}) {
+  Widget _buildGridCard(
+    BuildContext context, {
+    required String title, 
+    required String subtitle, 
+    required IconData icon, 
+    required VoidCallback onTap, 
+    bool isAlert = false, 
+    bool isDark = false,
+  }) {
     final theme = Theme.of(context);
-    Color bgColor = theme.colorScheme.surface;
-    Color textColor = theme.colorScheme.onSurface;
+    Color bgColor = Colors.white;
+    Color textColor = Colors.black87;
     Color iconColor = theme.colorScheme.primary;
-    Color iconBgColor = theme.colorScheme.primary.withValues(alpha: 0.1); 
+    Color iconBgColor = theme.colorScheme.primary.withValues(alpha: 0.08); 
 
     if (isAlert) {
       bgColor = const Color(0xFFFFF0EC); 
+      textColor = const Color(0xFF9A2E14);
       iconColor = Colors.deepOrange;
-      iconBgColor = Colors.deepOrange.withValues(alpha: 0.15); 
+      iconBgColor = Colors.deepOrange.withValues(alpha: 0.12); 
     } else if (isDark) {
       bgColor = const Color(0xFF1E293B); 
       textColor = Colors.white;
-      iconColor = Colors.white;
-      iconBgColor = Colors.white.withValues(alpha: 0.15); 
+      iconColor = const Color(0xFF38BDF8);
+      iconBgColor = Colors.white.withValues(alpha: 0.1); 
     }
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: bgColor,
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02), 
+            blurRadius: 10, 
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Material(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: iconBgColor, shape: BoxShape.circle),
-              child: Icon(icon, color: iconColor, size: 28),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: iconBgColor, shape: BoxShape.circle),
+                  child: Icon(icon, color: iconColor, size: 26),
+                ),
+                const Spacer(),
+                Text(
+                  title, 
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: textColor, letterSpacing: -0.3),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle, 
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13, 
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : Colors.grey[500], 
+                    height: 1.3,
+                  ),
+                ),
+              ],
             ),
-            const Spacer(),
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: textColor, letterSpacing: -0.3)),
-            const SizedBox(height: 4),
-            Text(subtitle, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.grey[600], height: 1.2)),
-          ],
+          ),
         ),
       ),
     );
@@ -306,7 +351,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
 }
 
 // ============================================================================
-// REUSABLE FADE TRANSITION
+// PERFORMANCE OPTIMIZED SMOOTH FADE TRANSITION
 // ============================================================================
 class FadeTransitionWidget extends StatefulWidget {
   final Widget child;
@@ -323,7 +368,7 @@ class _FadeTransitionWidgetState extends State<FadeTransitionWidget> with Single
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
     _animation = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
     _controller.forward();
   }

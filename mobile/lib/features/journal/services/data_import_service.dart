@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'local_journal_service.dart';
 
+/// Service Response Wrapper for highly predictable UI snackbar and loading handling
 class DataImportResult {
   final bool success;
   final String message;
@@ -13,37 +15,64 @@ class DataImportResult {
   DataImportResult({required this.success, required this.message, this.recordsImported = 0});
 }
 
-class DataImportService {
-  static final DataImportService instance = DataImportService._internal();
-  DataImportService._internal();
+/// 🚨 ARCHITECT UPGRADE: Global Provider for Dependency Injection
+/// Guarantees access parameters across both platform worker channels and user views.
+final dataImportServiceProvider = Provider<DataImportService>((ref) {
+  return DataImportService(LocalJournalService.instance);
+});
 
+class DataImportService {
+  final LocalJournalService _localDatabase;
   final Health _health = Health();
 
+  /// Defines the specific biometric data profiles required for psycho-somatic translation
   final List<HealthDataType> _types = [
     HealthDataType.SLEEP_ASLEEP,
     HealthDataType.STEPS,
   ];
 
-  Future<DataImportResult> syncHistoricalData({int daysToFetch = 30}) async {
+  DataImportService(this._localDatabase);
+
+  // ============================================================================
+  // CORE IMPORT PIPELINE ENGINE
+  // ============================================================================
+  /// Requests hardware-level operating permissions and aggregates continuous raw baseline telemetry.
+  /// Automatically synchronizes layout nodes via Riverpod `Ref` parameters upon transaction closure.
+  Future<DataImportResult> syncHistoricalData(WidgetRef ref, {int daysToFetch = 30}) async {
     try {
+      // 1. Enforce strict permissions auditing before reading device channels
       bool hasPermissions = await _health.hasPermissions(_types) ?? false;
       if (!hasPermissions) {
         hasPermissions = await _health.requestAuthorization(_types);
       }
 
       if (!hasPermissions) {
-        return DataImportResult(success: false, message: 'Health tracking permissions denied.');
+        return DataImportResult(
+          success: false, 
+          message: 'Health tracking permissions denied. Please verify your platform privacy settings.'
+        );
       }
 
+      // 2. Formulate parsing windows
       final now = DateTime.now();
       final startDate = now.subtract(Duration(days: daysToFetch));
 
-      List<HealthDataPoint> rawData = await _health.getHealthDataFromTypes(startTime: startDate, endTime: now, types: _types);
+      // 3. Extract continuous metrics collections from platform storage repositories
+      List<HealthDataPoint> rawData = await _health.getHealthDataFromTypes(
+        startTime: startDate, 
+        endTime: now, 
+        types: _types
+      );
 
       if (rawData.isEmpty) {
-        return DataImportResult(success: true, message: 'No historical health data found.', recordsImported: 0);
+        return DataImportResult(
+          success: true, 
+          message: 'No historical hardware baseline logs discovered during this pass.', 
+          recordsImported: 0
+        );
       }
 
+      // 4. Compact continuous timeline entries to clean distinct calendar datestamps (YYYY-MM-DD)
       final aggregatedData = _aggregateDataByDay(rawData);
       int importedCount = 0;
       
@@ -54,12 +83,13 @@ class DataImportService {
         final double sleepHours = (metrics['sleep_minutes'] ?? 0) / 60.0;
         final int steps = metrics['steps'] ?? 0;
 
+        // Skip structural voids to guarantee a compact, clean local file timeline
         if (sleepHours == 0 && steps == 0) continue;
 
         String emotion = _deriveEmotionFromSomaticData(sleepHours, steps);
         String insight = _generateSomaticInsight(sleepHours, steps);
 
-        // 🚨 ALGORITHMIC FIX: Added missing 'reframing_action' for the Paywall/Insight Screen
+        // Core Hooked model configuration mappings matching analytics states to reward views
         final slmFeatures = {
           'source': Platform.isIOS ? 'Apple Health' : 'Google Fit',
           'detected_emotion': emotion,
@@ -72,8 +102,9 @@ class DataImportService {
           'steps_recorded': steps,
         };
 
-        await LocalJournalService.instance.saveEntry(JournalEntry(
-          date: '${dateStr}T12:00:00.000Z', 
+        // 5. Commit atomically down into the verified local SQLite layer
+        await _localDatabase.saveEntry(JournalEntry(
+          date: '${dateStr}T12:00:00.000Z', // Anchor neatly to afternoon timestamps to bypass zone boundaries
           sessionType: 'Health Sync',
           emotion: emotion,
           aiInsight: insight,
@@ -83,16 +114,34 @@ class DataImportService {
         importedCount++;
       }
 
-      return DataImportResult(success: true, message: 'Imported $importedCount days of data.', recordsImported: importedCount);
+      // 6. 🚨 ARCHITECT STATE REFRESH: Alert Riverpod to update view states instantly
+      if (importedCount > 0) {
+        ref.read(journalTimelineProvider.notifier).refresh().ignore();
+      }
+
+      return DataImportResult(
+        success: true, 
+        message: 'Successfully processed and synchronized $importedCount days of physical telemetry.', 
+        recordsImported: importedCount
+      );
 
     } catch (e) {
-      debugPrint('[Data Import Service Error]: $e');
-      return DataImportResult(success: false, message: 'Error communicating with health tracking API.');
+      debugPrint('🚨 [Data Import Service Core Error]: $e');
+      return DataImportResult(
+        success: false, 
+        message: 'Platform tracking communication failure. Please verify active sensor sync states.'
+      );
     }
   }
 
+  // ============================================================================
+  // DATA REDUCTION & CLEANSING AGGREGATOR
+  // ============================================================================
+  /// Condenses overlapping data streams into a structured daily map layout.
   Map<String, Map<String, dynamic>> _aggregateDataByDay(List<HealthDataPoint> rawData) {
     Map<String, Map<String, dynamic>> dailyMap = {};
+    
+    // Purge parallel device duplicate collections to protect against tracking telemetry multiplication bugs
     List<HealthDataPoint> cleanData = _health.removeDuplicates(rawData);
 
     for (var point in cleanData) {
@@ -111,6 +160,10 @@ class DataImportService {
     return dailyMap;
   }
 
+  // ============================================================================
+  // SOMATIC TRANSLATION MATRIX
+  // ============================================================================
+  /// Translates absolute data integers directly into emotional indicators.
   String _deriveEmotionFromSomaticData(double sleepHours, int steps) {
     if (sleepHours > 0 && sleepHours < 5) return 'Fatigue';
     if (sleepHours >= 7 && steps > 8000) return 'Energized';
@@ -119,6 +172,7 @@ class DataImportService {
     return 'Neutral';
   }
 
+  /// Synthesizes contextual behavioral descriptions based on somatic properties.
   String _generateSomaticInsight(double sleepHours, int steps) {
     String insight = "Somatic Auto-Sync: ";
     if (sleepHours > 0) {

@@ -26,6 +26,7 @@ class StreakNotifier extends AsyncNotifier<StreakState> {
     return await _calculateStreak();
   }
 
+  /// Traverses user journaling history to calculate active consistency intervals safely.
   Future<StreakState> _calculateStreak() async {
     try {
       final entries = await LocalJournalService.instance.fetchHistory();
@@ -35,34 +36,37 @@ class StreakNotifier extends AsyncNotifier<StreakState> {
       }
 
       final Set<String> completed = {};
+      final formatter = DateFormat('yyyy-MM-dd');
       
       // 1. Map all SQLite entries to absolute local dates (YYYY-MM-DD)
       for (var entry in entries) {
         final date = DateTime.parse(entry.date).toLocal();
-        completed.add(DateFormat('yyyy-MM-dd').format(date));
+        completed.add(formatter.format(date));
       }
 
+      // Guard against timezone/midnight calculation runtime drift by freezing immediate time
+      final DateTime now = DateTime.now();
+      final String todayStr = formatter.format(now);
+      final String yesterdayStr = formatter.format(now.subtract(const Duration(days: 1)));
+
       int streak = 0;
-      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final yesterdayStr = DateFormat('yyyy-MM-dd').format(DateTime.now().subtract(const Duration(days: 1)));
+      DateTime cursor = now;
 
-      DateTime cursor = DateTime.now();
-
-      // 2. Grace Period Logic: If they haven't logged today, but logged yesterday, 
+      // 2. Grace Period Logic: If they haven't logged today, but logged yesterday,
       // the streak is pending, not broken.
       if (!completed.contains(todayStr) && completed.contains(yesterdayStr)) {
-        cursor = DateTime.now().subtract(const Duration(days: 1));
+        cursor = now.subtract(const Duration(days: 1));
       }
 
       // 3. Count consecutively backwards
-      while (completed.contains(DateFormat('yyyy-MM-dd').format(cursor))) {
+      while (completed.contains(formatter.format(cursor))) {
         streak++;
         cursor = cursor.subtract(const Duration(days: 1));
       }
 
       return StreakState(currentStreak: streak, completedDates: completed);
     } catch (e) {
-      debugPrint('🚨 [Streak Provider Error]: $e');
+      debugPrint('🚨 [Streak Provider Error]: Failed parsing history array values - $e');
       return StreakState(currentStreak: 0, completedDates: {});
     }
   }

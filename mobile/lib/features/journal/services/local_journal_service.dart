@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart'; // 🚨 ARCHITECT FIX
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // ============================================================================
 // DATA MODEL
@@ -82,38 +82,85 @@ class LocalJournalService {
         slmFeaturesJson TEXT
       )
     ''');
+    debugPrint('[LocalJournalService]: Offline SQLite Database created (v2).');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE journal ADD COLUMN slmFeaturesJson TEXT;');
+      debugPrint('[LocalJournalService]: Database upgraded to v2. Added slmFeaturesJson.');
     }
   }
 
   Future<void> saveEntry(JournalEntry entry) async {
-    final db = await database;
-    await db.insert('journal', entry.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+    try {
+      final db = await database;
+      await db.insert(
+        'journal', 
+        entry.toMap(), 
+        conflictAlgorithm: ConflictAlgorithm.replace
+      );
+    } catch (e) {
+      debugPrint('[LocalJournalService Error]: Failed to save entry - $e');
+    }
   }
 
   Future<List<JournalEntry>> fetchHistory() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('journal', orderBy: 'date DESC');
-    return List.generate(maps.length, (i) => JournalEntry.fromMap(maps[i]));
+    try {
+      final db = await database;
+      final List<Map<String, dynamic>> maps = await db.query(
+        'journal', 
+        orderBy: 'date DESC'
+      );
+      return List.generate(maps.length, (i) => JournalEntry.fromMap(maps[i]));
+    } catch (e) {
+      debugPrint('[LocalJournalService Error]: Failed to fetch history - $e');
+      return [];
+    }
+  }
+
+  // 🚨 TECH LEAD FIX: Added missing method required by BiometricCorrelationService
+  Future<List<JournalEntry>> getRecentHealthSyncEntries({required int days}) async {
+    try {
+      final db = await database;
+      final cutoffDate = DateTime.now().subtract(Duration(days: days)).toIso8601String();
+
+      final List<Map<String, dynamic>> maps = await db.query(
+        'journal',
+        where: 'sessionType = ? AND date >= ?',
+        whereArgs: ['Health Sync', cutoffDate],
+        orderBy: 'date DESC',
+      );
+
+      return List.generate(maps.length, (i) => JournalEntry.fromMap(maps[i]));
+    } catch (e) {
+      debugPrint('[LocalJournalService Error]: Failed to fetch health sync entries - $e');
+      return [];
+    }
   }
 
   Future<void> deleteEntry(int id) async {
-    final db = await database;
-    await db.delete('journal', where: 'id = ?', whereArgs: [id]);
+    try {
+      final db = await database;
+      await db.delete('journal', where: 'id = ?', whereArgs: [id]);
+    } catch (e) {
+      debugPrint('[LocalJournalService Error]: Failed to delete entry - $e');
+    }
   }
 
   Future<void> clearAllData() async {
-    final db = await database;
-    await db.delete('journal');
+    try {
+      final db = await database;
+      await db.delete('journal');
+      debugPrint('[LocalJournalService]: ALL device data purged securely.');
+    } catch (e) {
+      debugPrint('[LocalJournalService Error]: Failed to clear data - $e');
+    }
   }
 }
 
 // ============================================================================
-// 🚨 ARCHITECT FIX: RIVERPOD REACTIVE BRIDGE
+// RIVERPOD REACTIVE BRIDGE
 // This ensures the Timeline UI updates instantly when background syncs occur.
 // ============================================================================
 class JournalTimelineNotifier extends AsyncNotifier<List<JournalEntry>> {
@@ -130,6 +177,11 @@ class JournalTimelineNotifier extends AsyncNotifier<List<JournalEntry>> {
   Future<void> addEntry(JournalEntry entry) async {
     await LocalJournalService.instance.saveEntry(entry);
     await refresh(); // Instantly triggers a UI rebuild
+  }
+
+  Future<void> removeEntry(int id) async {
+    await LocalJournalService.instance.deleteEntry(id);
+    await refresh();
   }
 }
 

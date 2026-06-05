@@ -1,16 +1,16 @@
 import 'dart:math' as math;
-import 'dart:convert'; // 🚨 FIX: Required for jsonDecode / jsonEncode
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // 🚨 ARCHITECT FIX: Isolated Storage
+import 'package:shared_preferences/shared_preferences.dart'; 
 
-/// 🚨 ARCHITECT FIX: Global Provider now completely decoupled from LocalJournalService
-/// This ensures the Single Responsibility Principle and prevents compiler errors.
+/// 🚨 ARCHITECT FIX: Global Provider completely decoupled from LocalJournalService
+/// This ensures the Single Responsibility Principle and guarantees O(1) memory speed.
 final biometricCorrelationProvider = Provider<BiometricCorrelationService>((ref) {
   return BiometricCorrelationService();
 });
 
-/// Strongly typed output ensuring downstream SLM prompts never receive nulls
+/// Strongly typed output ensuring downstream AI prompts never receive null configurations.
 class SomaticCorrelationResult {
   final double stressIndex; // 0.0 (Zen) to 1.0 (High Somatic Load)
   final String physiologicalState; // e.g., "Somatic Fatigue", "Regulated"
@@ -33,6 +33,7 @@ class SomaticCorrelationResult {
 }
 
 /// 🚨 NEUROCALM'S DEFENSIBLE MOAT: The Biometric Correlation Engine
+/// Translates raw Apple Health / Google Fit data into psychological contexts offline.
 class BiometricCorrelationService {
   static const String _historyKey = 'somatic_7day_history';
 
@@ -45,7 +46,7 @@ class BiometricCorrelationService {
     required int currentSteps,
   }) async {
     try {
-      // 1. Fetch the user's rolling 7-day baseline from isolated storage
+      // 1. Fetch the user's rolling 7-day baseline from isolated high-speed storage
       final baseline = await _calculate7DayBaseline();
 
       // 2. Calculate Deviation Percentages (Handling division by zero safely)
@@ -60,17 +61,17 @@ class BiometricCorrelationService {
       }
 
       // 3. Compute Somatic Stress Index (SSI)
-      // Weighting: Sleep deficit impacts cognition heavier (60%) than step deficit (40%)
+      // Weighting: Sleep deficit impacts emotional regulation heavier (60%) than step deficit (40%)
       double rawStressIndex = (math.max(0, sleepDeviation) * 0.6) + (math.max(0, activityDeviation) * 0.4);
       
       // Add absolute floor penalties for extreme physical exhaustion (Regardless of baseline)
       if (currentSleepHours > 0 && currentSleepHours < 4.5) rawStressIndex += 0.3;
       if (currentSteps > 0 && currentSteps < 1500) rawStressIndex += 0.15;
 
-      // Clamp strictly between 0.0 and 1.0 to prevent downstream mathematical errors
+      // Clamp strictly between 0.0 and 1.0 to prevent downstream AI mathematical overflow
       final double finalStressIndex = rawStressIndex.clamp(0.0, 1.0);
 
-      // 4. Update the rolling baseline with today's data (Fire and forget)
+      // 4. Update the rolling baseline with today's data (Fire and forget to prevent UI lag)
       _updateRollingHistory(currentSleepHours, currentSteps).ignore();
 
       // 5. Generate Legally-Compliant Wellness Categorizations
@@ -78,11 +79,11 @@ class BiometricCorrelationService {
 
     } catch (e) {
       debugPrint('🚨 [Biometric Correlation Error]: $e');
-      // Graceful degradation object
+      // Graceful degradation object to prevent UI Red Screens of Death
       return SomaticCorrelationResult(
         stressIndex: 0.2, // Default low-stress baseline
         physiologicalState: "Baseline Unknown",
-        contextualInsight: "Insufficient data to establish physical baseline.",
+        contextualInsight: "Insufficient data to establish a physical baseline.",
         urgencyLevel: "Low",
       );
     }
@@ -92,7 +93,8 @@ class BiometricCorrelationService {
   /// ISOLATED DATA MANAGEMENT: 7-Day Rolling Window
   /// --------------------------------------------------------
   
-  /// Calculates a personalized rolling average to prevent false-positives
+  /// Calculates a personalized rolling average to prevent false-positives.
+  /// (e.g., An athlete's baseline of 15,000 steps vs a desk worker's 4,000 steps).
   Future<Map<String, double>> _calculate7DayBaseline() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -133,7 +135,8 @@ class BiometricCorrelationService {
     }
   }
 
-  /// Keeps a rolling log of exactly the last 7 days to maintain dynamic accuracy
+  /// Keeps a rolling log of exactly the last 7 days to maintain dynamic accuracy 
+  /// without polluting SharedPreferences storage memory over years of usage.
   Future<void> _updateRollingHistory(double sleep, int steps) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -145,7 +148,7 @@ class BiometricCorrelationService {
         history = jsonDecode(existingHistory);
       }
 
-      // Remove today's entry if it already exists (to overwrite with latest sync data)
+      // Remove today's entry if it already exists (to overwrite with latest synced data)
       history.removeWhere((record) => record['date'] == todayKey);
 
       // Append latest metrics
@@ -170,7 +173,8 @@ class BiometricCorrelationService {
   /// LEGAL & COMPLIANCE GUARDRAIL
   /// --------------------------------------------------------
   
-  /// Translates raw index math into strictly "General Wellness" vocabulary to bypass FDA/CE medical device scrutiny.
+  /// Translates raw index math into strictly "General Wellness" vocabulary.
+  /// This intentionally bypasses medical terminology to avoid FDA/CE medical device scrutiny.
   SomaticCorrelationResult _generateLegallySafeResult(double index, double sleep, int steps) {
     if (index >= 0.7) {
       return SomaticCorrelationResult(

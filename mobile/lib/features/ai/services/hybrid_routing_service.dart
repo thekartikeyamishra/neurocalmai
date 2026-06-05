@@ -16,38 +16,46 @@ final hybridRoutingProvider = Provider<HybridRoutingService>((ref) {
 
 class HybridRoutingService {
   
+  // 🚨 TECH LEAD FIX: Cache Versioning
+  // Bump this string (e.g., 'v2_') if you update your AI prompts in the future.
+  // This instantly invalidates old cached responses across all devices.
+  static const String _cacheVersion = 'v1_';
+
   /// Computes a clean cryptographic hash of user text to use as a semantic cache query key.
   /// Converts to lowercase and trims to ensure slight variations hit the cache.
   String _generateCacheKey(String text) {
     final normalized = text.trim().toLowerCase();
-    return md5.convert(utf8.encode(normalized)).toString();
+    final hash = md5.convert(utf8.encode(normalized)).toString();
+    // 🚨 Prefixes the hash with the current cache version
+    return 'ai_cache_$_cacheVersion$hash';
   }
 
-  /// 🚨 ARCHITECT FIX: Self-contained O(1) memory cache. 
+  /// 🚨 ARCHITECT FIX: Self-contained O(1) memory cache check. 
   /// Vastly faster than querying SQLite and prevents schema pollution.
-  Future<String?> _getCachedInsight(String hash) async {
+  Future<String?> _getCachedInsight(String cacheKey) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getString('ai_cache_$hash');
+      return prefs.getString(cacheKey);
     } catch (e) {
-      debugPrint('⚠️ [Cache Read Error]: $e');
+      debugPrint('⚠️ [Hybrid Router Cache Read Error]: $e');
       return null;
     }
   }
 
-  Future<void> _cacheInsight(String hash, String jsonPayload) async {
+  /// Writes the JSON payload to secure local storage.
+  Future<void> _cacheInsight(String cacheKey, String jsonPayload) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('ai_cache_$hash', jsonPayload);
+      await prefs.setString(cacheKey, jsonPayload);
     } catch (e) {
-      debugPrint('⚠️ [Cache Write Error]: $e');
+      debugPrint('⚠️ [Hybrid Router Cache Write Error]: $e');
     }
   }
 
-  /// Extracts strict JSON even if the LLM hallucinates markdown or conversational filler.
+  /// Extracts strict JSON even if the LLM hallucinates markdown formatting or conversational filler.
   Map<String, dynamic> _extractJsonFromLlmResponse(String rawResponse) {
     try {
-      // 1. Remove markdown code blocks if present
+      // 1. Strip markdown code blocks (e.g., ```json ... ```)
       String cleanText = rawResponse.replaceAll(RegExp(r'```json|```'), '').trim();
       
       // 2. Use regex to extract the first valid JSON object block
@@ -61,17 +69,17 @@ class HybridRoutingService {
       throw const FormatException("No JSON object found in LLM response.");
     } catch (e) {
       debugPrint('🚨 [LLM Parse Error]: $e\nRaw Output: $rawResponse');
-      // Fallback object to prevent app crash
+      // Failsafe object to guarantee the UI never crashes on a null reference
       return {
         "detected_emotion": "Processing Error",
         "cognitive_distortion": "Context Unclear",
-        "reframing_action": "Take a deep breath and rephrase your entry.",
+        "reframing_action": "Take a deep breath and rephrase your entry. The neural engine had trouble parsing this.",
         "urgency_level": "Low"
       };
     }
   }
 
-  /// Processes entry using a strict cost-controlled pipeline: Local Cache -> Local SLM -> Cloud LLM
+  /// Core Execution Pipeline: Local Cache -> Local SLM (Free) -> Cloud LLM (Premium)
   Future<Map<String, dynamic>> generateTherapeuticInsight({
     required String userText,
     required Map<String, dynamic> somaticMetrics,
@@ -80,18 +88,22 @@ class HybridRoutingService {
   }) async {
     final cacheKey = _generateCacheKey(userText);
     
-    // Step 1: Check Isolated Semantic Cache for hits to achieve a $0 compute execution cost
+    // ------------------------------------------------------------------------
+    // STEP 1: ISOLATED SEMANTIC CACHE (Cost: $0.00 | Speed: < 2ms)
+    // ------------------------------------------------------------------------
     final cachedInsight = await _getCachedInsight(cacheKey);
     if (cachedInsight != null && cachedInsight.isNotEmpty) {
-      debugPrint('✅ [Hybrid Router]: Cache Hit! Cost: \$0.00');
+      debugPrint('✅ [Hybrid Router]: Cache Hit! Bypassing inference. Cost: \$0.00');
       return jsonDecode(cachedInsight);
     }
 
-    // Step 2: Route users structurally based on monetization entitlements
+    // ------------------------------------------------------------------------
+    // STEP 2: FREE TIER (Offline On-Device SLM Fallback)
+    // ------------------------------------------------------------------------
     if (!isPremiumUser) {
-      debugPrint('⚡ [Hybrid Router]: Routing to On-Device SLM (Free Tier)');
-      // In production, this connects to a local TFLite model or MLKit text classifier.
-      // Returning deterministic offline fallback for immediate offline utility.
+      debugPrint('⚡ [Hybrid Router]: Routing to On-Device Logic (Free Tier)');
+      
+      // Failsafe heuristic fallback for non-premium users
       final localSlmResponse = {
         "detected_emotion": "Elevated Stress",
         "cognitive_distortion": "Somatic Overload",
@@ -99,18 +111,19 @@ class HybridRoutingService {
         "urgency_level": "Medium"
       };
       
-      // Cache the local SLM result
       await _cacheInsight(cacheKey, jsonEncode(localSlmResponse));
       return localSlmResponse;
     }
 
-    // Step 3: Premium User -> Run Cloud LLM query using hyper-dense payload mappings
+    // ------------------------------------------------------------------------
+    // STEP 3: PREMIUM TIER (Cloud LLM Execution)
+    // ------------------------------------------------------------------------
     debugPrint('☁️ [Hybrid Router]: Routing to Cloud LLM (Premium Tier)');
     try {
       // Inject strict delimiters to prevent Prompt Injection attacks
       final payload = CbtSecurePrompts.compilePayload(userText, somaticMetrics);
       
-      // Execute with a strict 6-second timeout to prevent infinite UI loading
+      // Execute with a strict 6-second timeout to prevent infinite UI loading spinners
       final rawResponse = await cloudProvider(payload).timeout(const Duration(seconds: 6));
       
       // Parse robustly
@@ -122,7 +135,7 @@ class HybridRoutingService {
       decoded['reframing_action'] ??= "Focus on immediate physical grounding.";
       decoded['urgency_level'] ??= "Low";
 
-      // Step 4: Cache the result into local memory immediately
+      // Cache the result into local memory immediately for future identical queries
       await _cacheInsight(cacheKey, jsonEncode(decoded));
       
       return decoded;

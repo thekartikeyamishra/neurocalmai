@@ -8,27 +8,30 @@ import 'package:sqflite/sqflite.dart';
 import '../../journal/services/local_journal_service.dart';
 
 /// 🚨 ARCHITECT UPGRADE: Global Provider for Dependency Injection
+/// Establishes clean decoupled testing parameters across the operational architecture.
 final habitLoopServiceProvider = Provider<HabitLoopService>((ref) {
   return HabitLoopService(LocalJournalService.instance);
 });
 
-/// Core Engine for Retention (The Hooked Model)
+/// Core Engine for System Retention (The Hooked Model Implementation)
+/// Processes subconscious triggers, calculates engagement vectors, and weights user bias modifications.
 class HabitLoopService {
   final LocalJournalService _localDatabase;
 
   HabitLoopService(this._localDatabase);
 
-  /// --------------------------------------------------------
-  /// 1. PHASE 1: THE TRIGGER (Bio-Somatic Evaluation)
-  /// --------------------------------------------------------
-  /// Evaluates current somatic variables against rolling averages to surface bio-empathic triggers.
-  /// Designed to be called by a background worker or on app resume.
+  // ============================================================================
+  // 1. PHASE 1: THE TRIGGER (Bio-Somatic Evaluation)
+  // ============================================================================
+  /// Evaluates immediate somatic inputs against operational safety ranges to generate 
+  /// contextually appropriate bio-empathic trigger configurations.
+  /// Intended to run smoothly during system wake sequences or foreground notification transitions.
   Future<Map<String, dynamic>?> evaluateSomaticTriggers({
     required double currentSleepHours,
     required int currentSteps,
   }) async {
     try {
-      // Baseline parameters derived from standard operational ranges
+      // Baseline parameters derived from standard operational wellness curves
       const double sleepDangerThreshold = 5.0;
       const int sedentaryStepThreshold = 3000;
 
@@ -52,23 +55,23 @@ class HabitLoopService {
       
       return null;
     } catch (e) {
-      debugPrint('⚠️ [Habit Loop Trigger Error]: $e');
+      debugPrint('⚠️ [Habit Loop Trigger Warning]: Structural metrics incomplete - $e');
       return null;
     }
   }
 
-  /// --------------------------------------------------------
-  /// 2. PHASE 3 & 4: VARIABLE REWARD & INVESTMENT
-  /// --------------------------------------------------------
-  /// Commits user selection to the SQLite weight table to customize the local SLM profile.
-  /// Utilizes atomic transactions to prevent race conditions during rapid button taps.
+  // ============================================================================
+  // 2. PHASE 3 & 4: VARIABLE REWARD & INVESTMENT
+  // ============================================================================
+  /// Commits user behavioral selection profiles to the local SQLite weight matrix[cite: 17].
+  /// Utilizes strict isolated transaction environments to guard against race conditions[cite: 17].
   Future<void> commitCognitiveInvestment({
     required String cognitiveDistortion,
     required String successfulReframingPattern,
     required bool userHelpfulnessRating,
   }) async {
     try {
-      // Custom haptic feedback engine signaling investment reinforcement to the user's nervous system
+      // Custom double-tap haptic framework pulsing verification states directly down to the device
       if (userHelpfulnessRating) {
         await HapticFeedback.heavyImpact();
         await Future.delayed(const Duration(milliseconds: 120));
@@ -78,9 +81,9 @@ class HabitLoopService {
       }
 
       final int weightAdjustment = userHelpfulnessRating ? 1 : -1;
-      final db = await _localDatabase.database; // Await the secure database instance
+      final db = await _localDatabase.database; 
       
-      // Ensure the localized structural table exists
+      // Ensure the structural tracking schema is operational prior to recording transactions
       await db.execute('''
         CREATE TABLE IF NOT EXISTS slm_user_biases (
           distortion_key TEXT PRIMARY KEY,
@@ -90,7 +93,7 @@ class HabitLoopService {
         )
       ''');
 
-      // 🚨 TECH LEAD FIX: Atomic transaction ensuring zero database corruption
+      // 🚨 TECH LEAD FIX: Atomic database transaction preventing pipeline deadlocks
       await db.transaction((txn) async {
         final List<Map<String, dynamic>> existing = await txn.query(
           'slm_user_biases',
@@ -109,13 +112,15 @@ class HabitLoopService {
           });
         } else {
           final int currentWeight = existing.first['synaptic_weight'] as int;
-          // Prevent weights from dropping endlessly into negatives if user rejects often
+          
+          // Clamp values dynamically between -5 and 50 to maintain baseline stability 
+          // and prevent malicious long-tail math calculation overflows inside prompt builders.
           final int newWeight = (currentWeight + weightAdjustment).clamp(-5, 50); 
           
           await txn.update(
             'slm_user_biases',
             {
-              'pattern_value': successfulReframingPattern, // Update to the most recent pattern context
+              'pattern_value': successfulReframingPattern, 
               'synaptic_weight': newWeight,
               'last_updated_timestamp': nowIso,
             },
@@ -125,28 +130,28 @@ class HabitLoopService {
         }
       });
       
-      debugPrint('💾 [Synaptic Investment]: Registered bias update for $cognitiveDistortion');
+      debugPrint('💾 [Synaptic Investment]: Updated localized bias array for $cognitiveDistortion');
     } catch (e) {
-      debugPrint('🚨 [Cognitive Investment Error]: $e');
+      debugPrint('🚨 [Cognitive Investment Error]: Transaction interrupted - $e');
     }
   }
 
-  /// --------------------------------------------------------
-  /// 3. LOOP CLOSURE: RETRIEVING THE INVESTMENT
-  /// --------------------------------------------------------
-  /// Fetches the user's top positively reinforced biases.
-  /// Used by HybridRoutingService to inject personalized context into future AI prompts.
+  // ============================================================================
+  // 3. LOOP CLOSURE: RETRIEVING THE INVESTMENT
+  // ============================================================================
+  /// Extracts heavily weighted baseline elements confirmed as positive by the user[cite: 17].
+  /// Injected natively into pipeline request objects to personalize subsequent interaction matrices[cite: 17].
   Future<List<Map<String, dynamic>>> getTopCognitiveBiases({int limit = 3}) async {
     try {
       final db = await _localDatabase.database;
       
-      // Check if table exists first to prevent crashes on fresh installs
+      // Safe check ensuring localized structural schemas have loaded cleanly before processing queries
       final tableCheck = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='slm_user_biases'");
           
       if (tableCheck.isEmpty) return [];
 
-      // Fetch the highest weighted patterns that the user explicitly found helpful (> 0)
+      // Query tracking variables that contain proven therapeutic value (> 0 weight checks)[cite: 17]
       final List<Map<String, dynamic>> topBiases = await db.query(
         'slm_user_biases',
         where: 'synaptic_weight > ?',
@@ -157,7 +162,7 @@ class HabitLoopService {
 
       return topBiases;
     } catch (e) {
-      debugPrint('🚨 [Bias Retrieval Error]: $e');
+      debugPrint('🚨 [Bias Retrieval Error]: Failed to extract data vectors - $e');
       return [];
     }
   }

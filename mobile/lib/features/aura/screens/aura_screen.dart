@@ -18,15 +18,16 @@ class AuraScreen extends ConsumerStatefulWidget {
 }
 
 class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStateMixin {
-  // Animations
+  // Entrance Animations
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+  // Continuous "Breathing" Animations
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   
-  // State
+  // Local State
   String _aiResponse = "Tuning into your frequency...";
   bool _isLoading = true;
 
@@ -51,19 +52,19 @@ class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStat
     // 2. Continuous "Breathing" Aura Animation (Glow Effect)
     _pulseController = AnimationController(
       vsync: this, 
-      duration: const Duration(milliseconds: 3000), // 3-second inhale/exhale
+      duration: const Duration(milliseconds: 3000), // 3-second inhale/exhale cycle
     )..repeat(reverse: true);
     
     _pulseAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOutSine),
     );
 
-    // Generate Offline Insight
+    // Trigger the offline insight generation
     _generateOfflineAuraInsight();
   }
 
   /// 🚨 ARCHITECT FIX: Offline-First Aura Engine
-  /// Generates instant, 0-latency therapeutic insights without relying on cloud APIs.
+  /// Generates instant, 0-latency therapeutic insights without relying on expensive cloud APIs.
   Future<void> _generateOfflineAuraInsight() async {
     // Artificial delay to build psychological anticipation ("Tuning in...")
     await Future.delayed(const Duration(milliseconds: 1800));
@@ -73,6 +74,7 @@ class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStat
     String insight;
     final emotion = widget.primaryEmotion.toLowerCase();
 
+    // Map localized heuristics based on the incoming parameters
     if (widget.moodScore <= 3 || emotion.contains('anxi') || emotion.contains('stress')) {
       insight = "Your energy is processing heavy elements. It is safe to rest, breathe, and let go of what you cannot control.";
     } else if (widget.moodScore <= 6 || emotion.contains('neutral') || emotion.contains('calm')) {
@@ -86,6 +88,7 @@ class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStat
       _isLoading = false;
     });
     
+    // Reveal the text and trigger a haptic confirmation
     _fadeController.forward();
     HapticFeedback.mediumImpact();
   }
@@ -101,7 +104,7 @@ class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStat
     }
   }
 
-  /// 🚨 VIRALITY FIX: Native share formatting
+  /// 🚨 VIRALITY FIX: Native share formatting targeting IG Stories & WhatsApp
   void _shareAura() {
     HapticFeedback.heavyImpact();
     final String shareText = 
@@ -147,7 +150,7 @@ class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStat
                 padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
                 child: Column(
                   children: [
-                    // 🚨 UI FIX: The Breathing Aura Card
+                    // 🚨 UI FIX: The Breathing Aura Card using AnimatedBuilder for 60fps performance
                     AnimatedBuilder(
                       animation: _pulseAnimation,
                       builder: (context, child) {
@@ -231,7 +234,7 @@ class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStat
 
                     const Spacer(),
                     
-                    // Dynamic Insight Area
+                    // Dynamic Insight Area (Loading vs Loaded State)
                     _isLoading 
                       ? AnimatedBuilder(
                           animation: _pulseAnimation,

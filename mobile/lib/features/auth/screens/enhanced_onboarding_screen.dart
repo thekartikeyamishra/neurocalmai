@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart'; // 🚨 ARCHITECT FIX: Required for ConsumerStatefulWidget
 
-// 🚨 ARCHITECT INTEGRATION: Linking newly built systems
+// Internal Dependencies
 import '../../journal/services/data_import_service.dart';
 import '../../monetization/screens/premium_paywall_screen.dart';
 
-class EnhancedOnboardingScreen extends StatefulWidget {
+// 🚨 ARCHITECT FIX: Converted to ConsumerStatefulWidget to hook into the Riverpod architecture safely
+class EnhancedOnboardingScreen extends ConsumerStatefulWidget {
   const EnhancedOnboardingScreen({super.key});
 
   @override
-  State<EnhancedOnboardingScreen> createState() =>
-      _EnhancedOnboardingScreenState();
+  ConsumerState<EnhancedOnboardingScreen> createState() => _EnhancedOnboardingScreenState();
 }
 
-class _EnhancedOnboardingScreenState extends State<EnhancedOnboardingScreen> {
+class _EnhancedOnboardingScreenState extends ConsumerState<EnhancedOnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
   bool _isProcessing = false;
@@ -100,12 +101,14 @@ class _EnhancedOnboardingScreenState extends State<EnhancedOnboardingScreen> {
     _advanceToNextStep();
   }
 
+  // 🚨 ARCHITECT FIX: Riverpod Dependency Injection implementation
   Future<void> _handleDataSync() async {
     HapticFeedback.heavyImpact();
     setState(() => _isSyncingData = true);
 
-    // Call the Service we built earlier
-    final result = await DataImportService.instance.syncHistoricalData(
+    // Call the Service using Riverpod's ref.read() instead of the deprecated Singleton (.instance)
+    final result = await ref.read(dataImportServiceProvider).syncHistoricalData(
+      ref,
       daysToFetch: 30,
     );
 
@@ -150,7 +153,7 @@ class _EnhancedOnboardingScreenState extends State<EnhancedOnboardingScreen> {
     }
     await prefs.setBool('has_seen_onboarding', true);
 
-    // Simulate Deep AI Calibration
+    // Simulate Deep AI Calibration to build psychological investment
     await Future.delayed(const Duration(milliseconds: 3500));
 
     if (mounted) {
@@ -246,7 +249,7 @@ class _EnhancedOnboardingScreenState extends State<EnhancedOnboardingScreen> {
         Expanded(
           child: PageView.builder(
             controller: _pageController,
-            physics: const NeverScrollableScrollPhysics(), // Forces interaction
+            physics: const NeverScrollableScrollPhysics(), // Forces interaction via buttons
             itemCount: _steps.length,
             itemBuilder: (context, index) {
               final step = _steps[index];
@@ -294,7 +297,7 @@ class _EnhancedOnboardingScreenState extends State<EnhancedOnboardingScreen> {
     );
   }
 
-  /// 🚨 UX UPGRADE: Custom Animated Option Cards instead of basic OutlinedButtons
+  /// 🚨 UX UPGRADE: Custom Animated Option Cards
   Widget _buildOptionCard(ThemeData theme, String title, int index) {
     return TweenAnimationBuilder<double>(
       duration: Duration(milliseconds: 400 + (index * 150)),
@@ -357,7 +360,7 @@ class _EnhancedOnboardingScreenState extends State<EnhancedOnboardingScreen> {
     );
   }
 
-  /// 🚨 INTEGRATION: The seamless switching UI module
+  /// 🚨 INTEGRATION: The seamless data bridging module
   Widget _buildDataSyncStep(ThemeData theme) {
     return Column(
       children: [

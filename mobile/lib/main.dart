@@ -7,24 +7,23 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Firebase auto-generated file
+// Firebase auto-generated file (Ensure this exists in your lib folder via FlutterFire CLI)
 import 'firebase_options.dart';
 
-// Routing Destinations
+// 🚨 ARCHITECT ROUTING: Safe explicit paths
 import 'features/auth/screens/auth_screen.dart';
 import 'features/auth/screens/enhanced_onboarding_screen.dart'; 
 import 'features/dashboard/screens/dashboard_screen.dart'; 
 
 // Services
 import 'features/monetization/services/admob_service.dart';
-// 🚨 ARCHITECT FIX: Removed unused local_journal_service.dart import to fix strict linting errors.
 
 void main() async {
-  // 1. Zone Guarding for Production Stability
+  // 1. Zone Guarding for Production Stability: Catches all uncaught async errors
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
 
-    // 2. Load Environment Variables
+    // 2. Load Environment Variables (API Keys, RevenueCat Keys)
     try {
       await dotenv.load(fileName: ".env");
       debugPrint('✅ Environment variables loaded successfully.');
@@ -32,7 +31,7 @@ void main() async {
       debugPrint('⚠️ Could not load .env file. Running with local defaults.');
     }
 
-    // 3. Initialize Firebase securely
+    // 3. Initialize Firebase Securely
     try {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
@@ -42,7 +41,7 @@ void main() async {
       debugPrint('⚠️ Firebase initialization error (Offline Mode Active): $e');
     }
 
-    // 4. Initialize AdMob Service
+    // 4. Initialize AdMob Service Failsafes
     try {
       await AdMobService.instance.initialize();
       debugPrint('✅ AdMob SDK initialized.');
@@ -50,7 +49,7 @@ void main() async {
       debugPrint('⚠️ AdMob initialization error (Running offline): $e');
     }
 
-    // 5. Lock orientation & System UI
+    // 5. Lock Orientation & System UI to prevent layout breaking
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -65,14 +64,17 @@ void main() async {
       ),
     );
 
+    // 6. Wrap the entire app in Riverpod's ProviderScope
     runApp(const ProviderScope(child: NeuroCalmApp()));
 
   }, (error, stack) {
-    debugPrint('🚨 [FATAL ASYNC ERROR]: $error');
+    debugPrint('🚨 [FATAL ASYNC ERROR]: $error\n$stack');
   });
 }
 
-// Global Theme Data
+// ============================================================================
+// GLOBAL THEME DATA
+// ============================================================================
 final _neuroCalmTheme = ThemeData(
   useMaterial3: true,
   scaffoldBackgroundColor: const Color(0xFFF7F9F9),
@@ -81,9 +83,9 @@ final _neuroCalmTheme = ThemeData(
     surface: const Color(0xFFF7F9F9),
     primary: const Color(0xFF2A5C5A),
   ),
-  fontFamily: 'Inter', 
+  fontFamily: 'Inter', // Ensure Inter is registered in your pubspec.yaml
   textTheme: const TextTheme(
-    displayLarge: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, letterSpacing: -1.0, color: Color(0xFF2A5C5A)),
+    displayLarge: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: -1.0, color: Color(0xFF2A5C5A)),
     bodyLarge: TextStyle(fontSize: 16, height: 1.6, color: Color(0xFF444444)),
     bodyMedium: TextStyle(fontSize: 14, color: Color(0xFF666666)),
   ),
@@ -103,6 +105,9 @@ class NeuroCalmApp extends StatelessWidget {
   }
 }
 
+// ============================================================================
+// BOOTSTRAP / WELCOME SCREEN
+// ============================================================================
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -124,6 +129,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
   void initState() {
     super.initState();
 
+    // UI Entry Animations
     _entryController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _entryController, curve: const Interval(0.0, 1.0, curve: Curves.easeOut)),
@@ -132,6 +138,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
       CurvedAnimation(parent: _entryController, curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic)),
     );
 
+    // Ambient Pulse Animation
     _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 3000));
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOutSine),
@@ -139,7 +146,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
 
     _entryController.forward().then((_) {
       _pulseController.repeat(reverse: true);
-      _checkExistingSession();
+      _checkExistingSession(); // Automatically route if user is logged in
     });
   }
 
@@ -150,12 +157,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
     super.dispose();
   }
 
+  /// Evaluates local SharedPreferences and Firebase Auth to determine the start destination
   Future<void> _checkExistingSession() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
       final user = FirebaseAuth.instance.currentUser;
 
+      // Intentional delay to allow the user to ground themselves visually
       await Future.delayed(const Duration(milliseconds: 2000));
 
       if (!mounted) return;
@@ -171,6 +180,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
           ),
         );
       } else {
+        // Show the manual start button if no valid active session exists
         setState(() => _showButton = true);
       }
     } catch (e) {
@@ -206,6 +216,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
       );
     } catch (e) {
       if (mounted) {
+        // Fallback safely to onboarding
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const EnhancedOnboardingScreen()));
       }
     }
@@ -214,6 +225,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    
     return Scaffold(
       body: SafeArea(
         child: FadeTransition(
@@ -231,14 +243,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                     child: Container(
                       height: 80,
                       width: 80,
-                      decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), shape: BoxShape.circle),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.1), 
+                        shape: BoxShape.circle
+                      ),
                       child: Icon(Icons.spa_rounded, size: 40, color: theme.colorScheme.primary),
                     ),
                   ),
                   const SizedBox(height: 40),
                   Text('Find your\ncenter.', style: theme.textTheme.displayLarge),
                   const SizedBox(height: 20),
-                  Text('Your private, offline-ready space for emotional clarity and cognitive behavioral therapy.', style: theme.textTheme.bodyLarge),
+                  Text(
+                    'Your private, offline-ready space for emotional clarity and cognitive behavioral therapy.', 
+                    style: theme.textTheme.bodyLarge
+                  ),
                   const Spacer(flex: 2),
                   Center(
                     child: Row(
@@ -246,11 +264,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                       children: [
                         Icon(Icons.shield_rounded, size: 16, color: Colors.grey[600]),
                         const SizedBox(width: 8),
-                        Text('100% Private & Offline-Ready', style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w600)),
+                        Text(
+                          '100% Private & Offline-Ready', 
+                          style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w600)
+                        ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
+                  
+                  // Start Button
                   AnimatedOpacity(
                     opacity: _showButton ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 800),
@@ -266,8 +289,15 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                           elevation: 0,
                         ),
                         child: _isRouting
-                          ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                          : const Text('Begin Session', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+                          ? const SizedBox(
+                              height: 24, 
+                              width: 24, 
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5)
+                            )
+                          : const Text(
+                              'Begin Session', 
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: 0.5)
+                            ),
                       ),
                     ),
                   ),

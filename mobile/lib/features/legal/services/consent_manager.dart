@@ -82,9 +82,9 @@ class ConsentManager extends AsyncNotifier<ConsentState> {
     }
   }
 
-  /// --------------------------------------------------------
-  /// 1. GRANT CONSENT (Creates the Non-Repudiable Ledger)
-  /// --------------------------------------------------------
+  // ============================================================================
+  // 1. GRANT CONSENT (Creates the Non-Repudiable Ledger)
+  // ============================================================================
   Future<void> grantConsent() async {
     state = const AsyncValue.loading();
     
@@ -115,9 +115,9 @@ class ConsentManager extends AsyncNotifier<ConsentState> {
     }
   }
 
-  /// --------------------------------------------------------
-  /// 2. REVOKE CONSENT (GDPR Right to be Forgotten)
-  /// --------------------------------------------------------
+  // ============================================================================
+  // 2. REVOKE CONSENT (GDPR Right to be Forgotten)
+  // ============================================================================
   Future<void> revokeConsent() async {
     state = const AsyncValue.loading();
     
@@ -140,9 +140,9 @@ class ConsentManager extends AsyncNotifier<ConsentState> {
     }
   }
 
-  /// --------------------------------------------------------
-  /// 3. SECURE HARDWARE AUDIT FINGERPRINT
-  /// --------------------------------------------------------
+  // ============================================================================
+  // 3. SECURE HARDWARE AUDIT FINGERPRINT
+  // ============================================================================
   /// Generates a SHA-256 hash of immutable device identifiers.
   /// Proves *this specific device* accepted the terms, protecting against 
   /// "I didn't click that" legal claims, without storing raw PII.
@@ -153,11 +153,11 @@ class ConsentManager extends AsyncNotifier<ConsentState> {
     try {
       if (Platform.isAndroid) {
         AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-        // 🚨 TECH LEAD FIX: Aligned Android hashing with the robust standard used in referral engine
+        // Aligned Android hashing with the robust standard used in referral engine
         rawHardwareData = '${androidInfo.brand}-${androidInfo.device}-${androidInfo.id}-${androidInfo.hardware}-${androidInfo.manufacturer}';
       } else if (Platform.isIOS) {
         IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
-        // 🚨 TECH LEAD FIX: Replaced deprecated 'sysname' with 'systemName' and mapped 'utsname.machine'
+        // Replaced deprecated 'sysname' with 'systemName' and mapped 'utsname.machine'
         rawHardwareData = '${iosInfo.identifierForVendor}-${iosInfo.model}-${iosInfo.systemName}-${iosInfo.utsname.machine}';
       }
     } catch (e) {
@@ -165,6 +165,7 @@ class ConsentManager extends AsyncNotifier<ConsentState> {
       rawHardwareData = 'restricted_hardware_${DateTime.now().millisecondsSinceEpoch}';
     }
 
-    return md5.convert(utf8.encode(rawHardwareData)).toString();
+    // 🚨 TECH LEAD FIX: Upgraded from MD5 to SHA-256 to ensure enterprise-grade legal compliance
+    return sha256.convert(utf8.encode(rawHardwareData)).toString();
   }
 }

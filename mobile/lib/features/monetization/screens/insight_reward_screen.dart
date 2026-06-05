@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math; // 🚨 ARCHITECT FIX: Required for precise 3D Matrix Math
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,6 +59,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     // 3. Premium Auto-Bypass Logic
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      
       final isPremium = ref.read(subscriptionProvider).isPremium;
       if (isPremium) {
         setState(() => _rewardUnlocked = true);
@@ -78,7 +80,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     isHeavy ? HapticFeedback.heavyImpact() : HapticFeedback.lightImpact();
   }
 
-  /// 🚨 MONETIZATION & UX FIX: 4-Second Ad-Blocker Timeout Failsafe
+  // ============================================================================
+  // AD-BLOCKER & NETWORK FAILSAFE LOGIC
+  // ============================================================================
   void _handleUnlockRequest() {
     if (_isAdLoading) return;
     
@@ -88,7 +92,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
       _adHandled = false;
     });
 
-    // Timeout protection for Ad-Blockers (NextDNS, Pi-Hole) or dead networks
+    // 🚨 UX FIX: Timeout protection for Ad-Blockers (NextDNS, Pi-Hole) or dead networks
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted && _isAdLoading && !_adHandled) {
         _adHandled = true;
@@ -105,7 +109,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             _rewardUnlocked = true;
             _isAdLoading = false;
           });
-          HapticFeedbackExtension.successOverridden();
+          InsightHaptics.successOverridden();
         }
       },
       onAdClosed: () {
@@ -125,6 +129,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     
     showDialog(
       context: context,
+      barrierDismissible: false, // Force interaction
       builder: (context) => AlertDialog(
         backgroundColor: theme.colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -170,7 +175,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     );
   }
 
-  /// 🚨 HOOKED MODEL: Card Flipping Interaction
+  // ============================================================================
+  // HOOKED MODEL: VARIABLE REWARD (Card Flip)
+  // ============================================================================
   void _triggerFlippingMechanic() {
     HapticFeedback.mediumImpact();
     if (_cardFlipController.isCompleted) {
@@ -182,12 +189,14 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     }
   }
 
-  /// 🚨 HOOKED MODEL: Synaptic Data Investment
+  // ============================================================================
+  // HOOKED MODEL: SYNAPTIC INVESTMENT
+  // ============================================================================
   Future<void> _submitInvestmentAction(bool isPositive) async {
     if (_isInvestmentCommitted) return;
     setState(() => _isInvestmentCommitted = true);
 
-    // 🚨 TECH LEAD FIX: Migrated from Singleton to Riverpod Dependency Injection
+    // Write directly to the SQLite neural bias matrix via Riverpod
     await ref.read(habitLoopServiceProvider).commitCognitiveInvestment(
       cognitiveDistortion: widget.slmFeatures['cognitive_distortion']?.toString() ?? 'Catastrophizing',
       successfulReframingPattern: widget.slmFeatures['reframing_action']?.toString() ?? 'Cognitive Re-centering',
@@ -266,6 +275,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     );
   }
 
+  // ============================================================================
+  // UI: LOCKED STATE
+  // ============================================================================
   Widget _buildLockedView(ThemeData theme, bool isPremium) {
     return Padding(
       key: const ValueKey('locked_view'),
@@ -338,6 +350,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     );
   }
 
+  // ============================================================================
+  // UI: UNLOCKED STATE
+  // ============================================================================
   Widget _buildUnlockedInsights(ThemeData theme) {
     return Padding(
       key: const ValueKey('unlocked_view'),
@@ -358,7 +373,8 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             child: AnimatedBuilder(
               animation: _flipAnimation,
               builder: (context, child) {
-                final double transformValue = _flipAnimation.value * 3.1415926535;
+                // 🚨 MATH FIX: Safely use dart:math to execute 3D Flip
+                final double transformValue = _flipAnimation.value * math.pi;
                 return Transform(
                   transform: Matrix4.identity()
                     ..setEntry(3, 2, 0.001) // 3D perspective depth
@@ -452,8 +468,8 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
 
   Widget _buildBackCard(ThemeData theme) {
     return Transform(
-      // Prevents the text from being backwards/mirrored when flipped
-      transform: Matrix4.identity()..rotateY(3.1415926535), 
+      // 🚨 MATH FIX: Prevents the text from being backwards/mirrored when flipped
+      transform: Matrix4.identity()..rotateY(math.pi), 
       alignment: Alignment.center,
       child: Container(
         height: 320,
@@ -518,8 +534,11 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
   }
 }
 
-// Custom specialized haptics for psychological reward markers
-extension HapticFeedbackExtension on HapticFeedback {
+// ============================================================================
+// HAPTICS UTILITY
+// ============================================================================
+/// Custom specialized haptics for psychological reward markers
+class InsightHaptics {
   static Future<void> successOverridden() async {
     await HapticFeedback.mediumImpact();
     await Future.delayed(const Duration(milliseconds: 120));

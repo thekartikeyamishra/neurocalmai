@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../auth/screens/auth_screen.dart';
 import '../../journal/services/local_journal_service.dart';
-import '../../tracking/services/streak_service.dart';
 import '../providers/language_provider.dart';
+
+// 🚨 ARCHITECT FIX: Import the Riverpod providers we need to invalidate after a data wipe
+import '../../tracking/providers/streak_provider.dart';
 
 // Sheets & Screens
 import 'language_selection_screen.dart';
@@ -27,7 +29,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   }
 
   // ===========================================================================
-  // 1. DATA MANAGEMENT: Secure Wiping
+  // 1. DATA MANAGEMENT: Secure Wiping (GDPR Right to be Forgotten)
   // ===========================================================================
   Future<void> _confirmDataWipe() async {
     _triggerHaptic(true);
@@ -72,9 +74,14 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
 
     if (confirmed == true && mounted) {
       _triggerHaptic(true);
-      // Execute 100% Offline Wipe
+      
+      // Execute 100% Offline SQLite Wipe
       await LocalJournalService.instance.clearAllData();
-      await StreakService.instance.clearStreakData();
+      
+      // 🚨 ARCHITECT FIX: StreakService is deprecated. Streaks run off SQLite natively now.
+      // We simply invalidate the Riverpod state so the UI instantly resets to 0.
+      ref.invalidate(streakProvider);
+      ref.invalidate(journalTimelineProvider);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -83,7 +90,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               children: [
                 Icon(Icons.delete_sweep_rounded, color: Colors.white),
                 SizedBox(width: 12),
-                Text('All offline data has been securely erased.', style: TextStyle(fontWeight: FontWeight.w600)),
+                Expanded(
+                  child: Text('All offline data has been securely erased.', style: TextStyle(fontWeight: FontWeight.w600))
+                ),
               ],
             ),
             backgroundColor: Colors.grey[800],
@@ -104,7 +113,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     await ref.read(authProvider.notifier).signOut();
     
     if (mounted) {
-      // Clear the stack and return to the Auth/Welcome screen
+      // Clear the navigation stack to prevent users from pressing "back" into a logged-out state
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
@@ -234,7 +243,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                       subtitle: 'Read our offline-first guarantee',
                       onTap: () {
                         _triggerHaptic(false);
-                        // Route to privacy policy web view or simple screen
+                        // Route to privacy policy web view or native screen
                       },
                     ),
                     _buildDivider(),
@@ -382,7 +391,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
       curve: Curves.easeOutCubic,
       tween: Tween<double>(begin: 0.0, end: 1.0),
       builder: (context, value, _) {
-        // Stagger calculation based on index
+        // Stagger calculation based on index to create a waterfall cascade effect
         final delay = (index * 0.1).clamp(0.0, 1.0);
         final adjustedValue = ((value - delay) / (1 - delay)).clamp(0.0, 1.0);
 

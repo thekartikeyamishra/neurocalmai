@@ -11,7 +11,6 @@ import '../../therapy/screens/voice_therapy_screen.dart';
 import '../../emotion/screens/emotion_scan_screen.dart';
 import '../../therapy/screens/breathing_screen.dart';
 import '../../journal/screens/journal_timeline_screen.dart';
-// 🚨 NEW IMPORT: Accessing the newly refactored Tools Library
 import '../../therapy/screens/therapy_home_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -29,7 +28,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
   @override
   void initState() {
     super.initState();
-    // 🚨 ARCHITECT FIX: Added therapeutic staggered entry animations
+    
+    // Therapeutic staggered entry animations
     _entryController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -61,7 +61,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
 
   @override
   Widget build(BuildContext context) {
-    final streakState = ref.watch(streakProvider);
+    // 🚨 STATE FIX: Watching the AsyncValue securely from Riverpod
+    final asyncStreak = ref.watch(streakProvider);
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -80,7 +81,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Dynamic Greeting
+                      // Dynamic Greeting based on device time
                       Text(
                         _getDynamicGreeting(),
                         style: TextStyle(
@@ -91,27 +92,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                         ),
                       ),
                       const SizedBox(height: 16),
-                      
-                      _buildStreakCard(streakState, theme),
-                      
+
+                      // Streak Card handling AsyncValue gracefully
+                      _buildStreakCard(asyncStreak, theme),
+
                       const SizedBox(height: 36),
                       _buildSectionHeader(theme, "Daily Check-in"),
                       const SizedBox(height: 16),
                       _buildMainActions(context, theme),
-                      
+
                       const SizedBox(height: 36),
-                      
-                      // 🚨 ARCHITECT FIX: Added "See all" routing to the new ToolsLibraryScreen
+
                       _buildSectionHeader(
-                        theme, 
-                        "Recovery Tools", 
+                        theme,
+                        "Recovery Tools",
                         onSeeAll: () {
                           HapticFeedback.lightImpact();
                           Navigator.push(
-                            context, 
-                            MaterialPageRoute(builder: (_) => const ToolsLibraryScreen())
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ToolsLibraryScreen(),
+                            ),
                           );
-                        }
+                        },
                       ),
                       const SizedBox(height: 16),
                       _buildToolGrid(context, theme),
@@ -153,14 +156,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
           child: InkWell(
             onTap: () {
               HapticFeedback.selectionClick();
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const UserProfileScreen()));
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const UserProfileScreen()),
+              );
             },
             borderRadius: BorderRadius.circular(20),
             child: Container(
               height: 40,
               width: 40,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.1), // Fixed deprecated opacity
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: theme.colorScheme.primary.withValues(alpha: 0.2),
@@ -168,8 +174,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                 ),
               ),
               child: Icon(
-                Icons.person_rounded, 
-                color: theme.colorScheme.primary, 
+                Icons.person_rounded,
+                color: theme.colorScheme.primary,
                 size: 22,
               ),
             ),
@@ -179,7 +185,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     );
   }
 
-  Widget _buildStreakCard(dynamic streakState, ThemeData theme) {
+  // 🚨 UI FIX: Safely unwrapping the AsyncValue to prevent NoSuchMethodError during SQLite queries
+  Widget _buildStreakCard(AsyncValue<StreakState> asyncStreak, ThemeData theme) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -188,28 +195,63 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: theme.colorScheme.primary.withValues(alpha: 0.3), // Fixed deprecated opacity
+            color: theme.colorScheme.primary.withValues(alpha: 0.3),
             blurRadius: 20,
             offset: const Offset(0, 10),
-          )
+          ),
         ],
       ),
       child: Row(
         children: [
-          const Icon(Icons.local_fire_department_rounded, color: Colors.orangeAccent, size: 48),
+          const Icon(
+            Icons.local_fire_department_rounded,
+            color: Colors.orangeAccent,
+            size: 48,
+          ),
           const SizedBox(width: 20),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '${streakState.currentStreak} Day Streak',
-                  style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                // Displaying state dynamically
+                asyncStreak.when(
+                  data: (streakState) => Text(
+                    '${streakState.currentStreak} Day Streak',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  loading: () => const Padding(
+                    padding: EdgeInsets.only(bottom: 4.0),
+                    child: SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    ),
+                  ),
+                  error: (err, stack) => const Text(
+                    '0 Day Streak',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   'Keep your momentum going.',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 14,
+                  ),
                 ),
               ],
             ),
@@ -247,7 +289,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                   ),
                 ),
                 const SizedBox(width: 4),
-                Icon(Icons.arrow_forward_ios_rounded, size: 12, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 12,
+                  color: theme.colorScheme.primary,
+                ),
               ],
             ),
           ),
@@ -277,7 +323,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
             theme.colorScheme.primary,
             Colors.white,
             const VoiceTherapyScreen(),
-            hasShadow: true, // Draws attention to the primary CBT feature
+            hasShadow: true,
           ),
         ),
       ],
@@ -293,13 +339,34 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       crossAxisSpacing: 16,
       childAspectRatio: 1.1,
       children: [
-        _buildToolItem(context, theme, 'Panic Mode', Icons.waves_rounded, const BreathingScreen(), isAlert: true),
-        _buildToolItem(context, theme, 'My Journal', Icons.history_edu_rounded, const JournalTimelineScreen()),
+        _buildToolItem(
+          context,
+          theme,
+          'Panic Mode',
+          Icons.waves_rounded,
+          const BreathingScreen(),
+          isAlert: true,
+        ),
+        _buildToolItem(
+          context,
+          theme,
+          'My Journal',
+          Icons.history_edu_rounded,
+          const JournalTimelineScreen(),
+        ),
       ],
     );
   }
 
-  Widget _buildActionCard(BuildContext context, String label, IconData icon, Color bg, Color text, Widget screen, {bool hasShadow = false}) {
+  Widget _buildActionCard(
+    BuildContext context,
+    String label,
+    IconData icon,
+    Color bg,
+    Color text,
+    Widget screen, {
+    bool hasShadow = false,
+  }) {
     final theme = Theme.of(context);
     return GestureDetector(
       onTap: () {
@@ -309,28 +376,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 24),
         decoration: BoxDecoration(
-          color: bg, 
+          color: bg,
           borderRadius: BorderRadius.circular(24),
-          boxShadow: hasShadow ? [
-            BoxShadow(
-              color: theme.colorScheme.primary.withValues(alpha: 0.3),
-              blurRadius: 15,
-              offset: const Offset(0, 8),
-            )
-          ] : [],
+          boxShadow: hasShadow
+              ? [
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : [],
         ),
         child: Column(
           children: [
             Icon(icon, color: text, size: 32),
             const SizedBox(height: 12),
-            Text(label, style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              label,
+              style: TextStyle(
+                color: text,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildToolItem(BuildContext context, ThemeData theme, String label, IconData icon, Widget screen, {bool isAlert = false}) {
+  Widget _buildToolItem(
+    BuildContext context,
+    ThemeData theme,
+    String label,
+    IconData icon,
+    Widget screen, {
+    bool isAlert = false,
+  }) {
     return GestureDetector(
       onTap: () {
         isAlert ? HapticFeedback.heavyImpact() : HapticFeedback.mediumImpact();
@@ -342,7 +425,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 4))
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
           ],
         ),
         child: Column(
@@ -351,16 +438,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isAlert ? Colors.deepOrange.withValues(alpha: 0.1) : theme.colorScheme.primary.withValues(alpha: 0.05),
+                color: isAlert
+                    ? Colors.deepOrange.withValues(alpha: 0.1)
+                    : theme.colorScheme.primary.withValues(alpha: 0.05),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: isAlert ? Colors.deepOrange : theme.colorScheme.primary, size: 28),
+              child: Icon(
+                icon,
+                color: isAlert ? Colors.deepOrange : theme.colorScheme.primary,
+                size: 28,
+              ),
             ),
             const SizedBox(height: 12),
             Text(
-              label, 
+              label,
               style: TextStyle(
-                fontWeight: FontWeight.w700, 
+                fontWeight: FontWeight.w700,
                 color: isAlert ? Colors.deepOrange[800] : Colors.black87,
               ),
             ),

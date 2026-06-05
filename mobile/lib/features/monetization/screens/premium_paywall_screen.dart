@@ -3,8 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
+// Internal Services
 import '../services/subscription_service.dart';
-import '../../dashboard/screens/dashboard_screen.dart'; // 🚨 ARCHITECT FIX: Explicit routing fallback
+import '../../dashboard/screens/dashboard_screen.dart';
 
 class PremiumPaywallScreen extends ConsumerStatefulWidget {
   const PremiumPaywallScreen({super.key});
@@ -22,13 +23,13 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
   void initState() {
     super.initState();
     
-    // 1. Entrance Cascade Animation (Builds perceived value)
+    // 1. Entrance Cascade Animation (Builds perceived value via staggered reveal)
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
 
-    // 2. Continuous Pulsing Animation for the "Best Value" CTA
+    // 2. Continuous Pulsing Animation for the "Best Value" CTA to drive conversion
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -52,8 +53,11 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
     isHeavy ? HapticFeedback.heavyImpact() : HapticFeedback.lightImpact();
   }
 
+  /// Processes the transaction via RevenueCat and routes accordingly
   Future<void> _handlePurchase(Package package) async {
     _triggerHaptic(true);
+    
+    // Attempt purchase through the Riverpod subscription provider
     final success = await ref.read(subscriptionProvider.notifier).purchasePackage(package);
     
     if (success && mounted) {
@@ -65,6 +69,7 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
     }
   }
 
+  /// Fallback routing allowing users to gracefully exit the paywall
   void _continueWithFreeTier() {
     _triggerHaptic(false);
     Navigator.pushReplacement(
@@ -75,6 +80,7 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
 
   @override
   Widget build(BuildContext context) {
+    // Watch RevenueCat state dynamically
     final subState = ref.watch(subscriptionProvider);
     final currentOffering = subState.offerings?.current;
 
@@ -100,7 +106,7 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
             bottom: false,
             child: Column(
               children: [
-                // Top Navigation Bar
+                // Top Navigation Bar (Close Button)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
                   child: Align(
@@ -161,25 +167,10 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
                       
                       const SizedBox(height: 32),
                       
-                      // Subscription Packages (RevenueCat Dynamic Pricing)
+                      // 🚨 REVENUECAT PACKAGES (Dynamic Pricing Rendering)
                       _buildAnimatedComponent(
                         index: 2,
-                        child: subState.isLoading
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(24.0),
-                                child: CircularProgressIndicator(color: Color(0xFF38BDF8)),
-                              ),
-                            )
-                          : Column(
-                              children: [
-                                if (currentOffering != null && currentOffering.availablePackages.isNotEmpty)
-                                  ...currentOffering.availablePackages.map((package) {
-                                    final isAnnual = package.packageType == PackageType.annual;
-                                    return _buildSubscriptionCard(package, isAnnual);
-                                  }),
-                              ],
-                            ),
+                        child: _buildPackagesSection(subState, currentOffering),
                       ),
                       
                       const SizedBox(height: 24),
@@ -219,6 +210,53 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Handles rendering of the packages or graceful offline/error states
+  Widget _buildPackagesSection(dynamic subState, Offering? currentOffering) {
+    if (subState.isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24.0),
+          child: CircularProgressIndicator(color: Color(0xFF38BDF8)),
+        ),
+      );
+    }
+    
+    if (currentOffering != null && currentOffering.availablePackages.isNotEmpty) {
+      return Column(
+        children: currentOffering.availablePackages.map((package) {
+          final isBestValue = package.packageType == PackageType.annual;
+          return _buildSubscriptionCard(package, isBestValue);
+        }).toList(),
+      );
+    }
+    
+    // Fallback if App Store/Play Store fetching fails (Network drop, configuration error)
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: Colors.white54, size: 32),
+          const SizedBox(height: 12),
+          Text(
+            "Store connection unavailable.",
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Please check your internet connection and try again later.",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
+          )
         ],
       ),
     );
@@ -318,7 +356,7 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
               ],
             ),
           ),
-          // DYNAMIC: Formats ₹, $, or € based on RevenueCat metadata natively
+          // DYNAMIC: Formats ₹, $, or € based on RevenueCat metadata natively via device region
           Text(
             package.storeProduct.priceString,
             style: TextStyle(
@@ -334,7 +372,7 @@ class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> wit
 
     return GestureDetector(
       onTap: () => _handlePurchase(package),
-      // Apply the pulsing animation ONLY to the "Best Value" (Annual) package
+      // Apply the active pulsing animation ONLY to the "Best Value" (Annual) package to draw the eye
       child: isBestValue 
         ? ScaleTransition(scale: _pulseAnimation, child: cardContent) 
         : cardContent,
