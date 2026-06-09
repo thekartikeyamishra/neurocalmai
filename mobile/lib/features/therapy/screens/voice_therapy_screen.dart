@@ -51,23 +51,20 @@ class _VoiceTherapyScreenState extends ConsumerState<VoiceTherapyScreen>
   void _handleInteraction(VoiceState currentState) async {
     final notifier = ref.read(voiceProvider.notifier);
 
-    if (currentState == VoiceState.idle ||
-        currentState == VoiceState.completed) {
+    if (currentState == VoiceState.idle || currentState == VoiceState.completed) {
       HapticFeedback.heavyImpact(); // Grounding trigger
-      _coreController.duration = const Duration(
-        milliseconds: 1500,
-      ); // Speed up for active state
+      _coreController.duration = const Duration(milliseconds: 1500); // Speed up for active state
       _coreController.repeat(reverse: true);
+      
       await notifier.startRecording();
     } else if (currentState == VoiceState.recording) {
       HapticFeedback.mediumImpact();
-      _coreController.duration = const Duration(
-        milliseconds: 4000,
-      ); // Return to calm rhythm
+      _coreController.duration = const Duration(milliseconds: 4000); // Return to calm rhythm
       _coreController.repeat(reverse: true);
 
       await notifier.stopRecordingAndProcess();
 
+      // Trigger the ASO review service if the session was successful
       if (notifier.lastAiTextResponse.isNotEmpty) {
         await AsoReviewService.instance.evaluateSessionForReview(4, 8);
       }
@@ -241,11 +238,10 @@ class _VoiceTherapyScreenState extends ConsumerState<VoiceTherapyScreen>
               ),
               boxShadow: [
                 BoxShadow(
-                  color:
-                      (state == VoiceState.recording
-                              ? _aiCyan
-                              : _aiCyan.withValues(alpha: 0.15))
-                          .withValues(alpha: _glowAnimation.value),
+                  color: (state == VoiceState.recording
+                          ? _aiCyan
+                          : _aiCyan.withValues(alpha: 0.15))
+                      .withValues(alpha: _glowAnimation.value),
                   blurRadius: 40,
                   spreadRadius: 10,
                 ),
@@ -296,10 +292,10 @@ class _VoiceTherapyScreenState extends ConsumerState<VoiceTherapyScreen>
           children: [
             Icon(Icons.shield_rounded, color: _mutedBlue, size: 14),
             const SizedBox(width: 8),
-            Text(
+            const Text(
               "Zero-Data Architecture. Encrypted locally.",
               style: TextStyle(
-                color: _mutedBlue,
+                color: Color(0xFF64748B), // _mutedBlue
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),

@@ -6,10 +6,8 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../settings/providers/language_provider.dart';
-import '../services/openai_service.dart'; 
-// 🚨 NEW IMPORTS: Removed flutter_tts in favor of High-Fidelity Audio & Local Context
+import '../services/gemini_service.dart'; 
 import '../services/audio_playback_service.dart';
-import '../../tracking/services/streak_service.dart';
 
 enum VoiceState { idle, recording, processing, speaking, completed }
 
@@ -78,7 +76,7 @@ class VoiceTherapyNotifier extends Notifier<VoiceState> {
     }
   }
 
-  /// 2. Secure Cloud Processing: 100% Serverless OpenAI Pipeline
+  /// 2. Secure Cloud Processing: 100% Gemini Flash Multimodal Pipeline
   Future<void> stopRecordingAndProcess() async {
     HapticFeedback.heavyImpact(); 
     state = VoiceState.processing;
@@ -93,52 +91,25 @@ class VoiceTherapyNotifier extends Notifier<VoiceState> {
     final activeLanguage = ref.read(languageProvider);
 
     try {
-      // 🚨 DUAL OPENAI PIPELINE: 100% Serverless
-      
-      // Step A: Speech to Text (Whisper-1)
-      final transcribedText = await OpenAIService.instance.transcribeAudio(
+      // 🚨 100% GEMINI PIPELINE: Direct Audio-to-JSON Multimodal Processing
+      // Bypasses Whisper and GPT completely, dropping cost to near zero.
+      final aiData = await GeminiService.instance.generateAudioReply(
         path, 
-        activeLanguage.displayName
-      );
-
-      if (transcribedText.trim().isEmpty) {
-        throw Exception("Audio was empty or unintelligible.");
-      }
-
-      // Step B: Context Injection (Wow Factor: Human-Like Context)
-      final streakData = await StreakService.instance.getStreakData();
-      final hour = DateTime.now().hour;
-      String timeOfDay = 'day';
-      if (hour < 12) timeOfDay = 'morning';
-      else if (hour < 18) timeOfDay = 'afternoon';
-      else timeOfDay = 'evening';
-
-      // Invisibly inject the local reality into the GPT prompt
-      final contextualPrompt = "[System Note: User has a ${streakData.currentStreak}-day app streak. It is currently the $timeOfDay.]\n\nUser says: $transcribedText";
-
-      // Step C: CBT Processing (GPT-4o-mini)
-      final aiData = await OpenAIService.instance.generateTherapyResponse(
-        contextualPrompt, 
-        [], // Empty history for single voice turns
-        activeLanguage.displayName
+        activeLanguage
       );
 
       _lastAiTextResponse = aiData['reply'] ?? _getLocalizedFallback();
       _lastSlmFeatures = aiData['slm_features'];
 
-      // Show the text immediately on the UI so the user can read while TTS generates
+      // Show the text immediately on the UI
       state = VoiceState.speaking;
 
-      // Step D: High-Fidelity Text-to-Speech (Nova Voice)
-      final audioBytes = await OpenAIService.instance.generateSpeechAudio(_lastAiTextResponse);
-
-      // Step E: Stutter-Free Local Playback
+      // 🚨 TTS Note: Since paid cloud TTS was removed to maximize margins, 
+      // we simulate the duration of the reading so the UI flows naturally.
+      // (Integration with the 100% free `flutter_tts` local package is recommended).
       if (!_isDisposed) {
-        await AudioPlaybackService.instance.playAudioBytes(audioBytes);
-        
-        // Estimate completion time based on average human speaking rate (~150 words per minute / ~2.5 words per sec)
-        // Adding a 1.5-second buffer for natural pauses.
         final wordCount = _lastAiTextResponse.split(' ').length;
+        // Average speaking rate: ~2.5 words per second + 1.5s natural buffer
         final estimatedDuration = Duration(milliseconds: (wordCount / 2.5 * 1000).toInt() + 1500);
         
         Future.delayed(estimatedDuration, () {
@@ -158,8 +129,7 @@ class VoiceTherapyNotifier extends Notifier<VoiceState> {
         _lastAiTextResponse = _getLocalizedError();
       }
       
-      // Since OpenAI TTS relies on network, we bypass the 'speaking' state and go straight to 'completed'
-      // so the user can read the comforting localized text fallback on their screen.
+      // Bypass speaking simulation on error so the user can read the fallback immediately
       state = VoiceState.completed; 
     }
   }
