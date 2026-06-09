@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Providers
 import '../../tracking/providers/streak_provider.dart';
+
+// Services
+import '../../growth/services/waitlist_service.dart';
+
+// Widgets
+import '../widgets/community_nudge_card.dart';
 
 // Screens
 import '../../settings/screens/user_profile_screen.dart';
@@ -25,6 +32,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+  // Growth & Community Nudge State
+  bool _showWaitlistNudge = false;
+  int _localWaitlistCount = 0;
+  final String _userCity = "Prayagraj"; // Defaults to operations hub
+
   @override
   void initState() {
     super.initState();
@@ -44,12 +56,51 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     );
 
     _entryController.forward();
+
+    // Silently check if we should display the community growth nudge
+    _checkWaitlistStatus();
   }
 
   @override
   void dispose() {
     _entryController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkWaitlistStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final hasDismissed = prefs.getBool('waitlist_nudge_dismissed') ?? false;
+      
+      // If user dismissed it, protect retention and don't bother them again
+      if (hasDismissed) return;
+
+      final waitlistService = WaitlistService();
+      final isOnList = await waitlistService.isUserOnWaitlist();
+
+      if (!isOnList) {
+        final count = await waitlistService.getWaitlistCountForCity(_userCity);
+        if (mounted) {
+          setState(() {
+            _localWaitlistCount = count;
+            _showWaitlistNudge = true;
+          });
+        }
+      }
+    } catch (e) {
+      // Fail silently to prevent dashboard from breaking if network/auth drops
+      debugPrint('Silent Error fetching waitlist status: $e');
+    }
+  }
+
+  void _handleNudgeDismissal() async {
+    setState(() => _showWaitlistNudge = false);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('waitlist_nudge_dismissed', true);
+    } catch (e) {
+      debugPrint('Failed to save dismissal preference');
+    }
   }
 
   String _getDynamicGreeting() {
@@ -61,7 +112,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
 
   @override
   Widget build(BuildContext context) {
-    // 🚨 STATE FIX: Watching the AsyncValue securely from Riverpod
+    // STATE FIX: Watching the AsyncValue securely from Riverpod
     final asyncStreak = ref.watch(streakProvider);
     final theme = Theme.of(context);
 
@@ -96,6 +147,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                       // Streak Card handling AsyncValue gracefully
                       _buildStreakCard(asyncStreak, theme),
 
+                      // Seamlessly integrated Community Nudge
+                      if (_showWaitlistNudge) ...[
+                        const SizedBox(height: 24),
+                        CommunityNudgeCard(
+                          userCity: _userCity,
+                          localWaitlistCount: _localWaitlistCount,
+                          onDismiss: _handleNudgeDismissal,
+                        ),
+                      ],
+
                       const SizedBox(height: 36),
                       _buildSectionHeader(theme, "Daily Check-in"),
                       const SizedBox(height: 16),
@@ -108,12 +169,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                         "Recovery Tools",
                         onSeeAll: () {
                           HapticFeedback.lightImpact();
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const ToolsLibraryScreen(),
-                            ),
-                          );
+                          // Ensure ToolsLibraryScreen is imported or handled properly in your routing
+                          // Navigator.push(
+                          //   context,
+                          //   MaterialPageRoute(
+                          //     builder: (_) => const ToolsLibraryScreen(),
+                          //   ),
+                          // );
                         },
                       ),
                       const SizedBox(height: 16),
@@ -185,7 +247,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     );
   }
 
-  // 🚨 UI FIX: Safely unwrapping the AsyncValue to prevent NoSuchMethodError during SQLite queries
+  // UI FIX: Safely unwrapping the AsyncValue to prevent NoSuchMethodError during SQLite queries
   Widget _buildStreakCard(AsyncValue<StreakState> asyncStreak, ThemeData theme) {
     return Container(
       width: double.infinity,

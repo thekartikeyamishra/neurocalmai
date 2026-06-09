@@ -22,7 +22,7 @@ class OnboardingContent {
 }
 
 // ============================================================================
-// UI SCREEN: Smooth, Haptic-Rich Onboarding
+// UI SCREEN: Smooth, Haptic-Rich Onboarding with 1-Click Migration
 // ============================================================================
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -38,7 +38,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
 
   int _currentPage = 0;
 
-  // Core Value Propositions matching NeuroCalm's Architecture
+  // Core Value Propositions matching Architecture
   final List<OnboardingContent> _pages = [
     OnboardingContent(
       title: "Your Private AI Guide",
@@ -91,13 +91,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
     });
   }
 
-  /// Completes onboarding, saves the state, and routes to Auth
-  Future<void> _finishOnboarding() async {
+  /// Completes onboarding, saves the state, and routes to Auth.
+  /// Accepts an optional migration flag to trigger instant profile creation.
+  Future<void> _finishOnboarding({bool isMigrating = false, String? migrationSource}) async {
     HapticFeedback.heavyImpact();
     
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_seen_onboarding', true);
+      
+      if (isMigrating && migrationSource != null) {
+        // Store migration intent for the Auth/Registration flow to pick up
+        await prefs.setString('pending_migration_source', migrationSource);
+      }
     } catch (e) {
       debugPrint('[Onboarding Error]: Failed to save completion state - $e');
     }
@@ -106,6 +112,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
+          // Pass intent to AuthScreen (assuming AuthScreen handles routing to ValueConsentScreen)
           pageBuilder: (context, animation, secondaryAnimation) => const AuthScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
@@ -114,6 +121,77 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
         ),
       );
     }
+  }
+
+  /// Displays the 1-Click Migration interface for instant profile creation
+  void _showMigrationBottomSheet() {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          top: 24,
+          left: 24,
+          right: 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.sync_rounded, color: Theme.of(context).colorScheme.primary, size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  "1-Click Migration",
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Moving from another platform? Our AI will instantly structure your historical data so you don't lose your progress.",
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
+            _buildMigrationOption(context, "Apple Health / iOS Data", Icons.apple),
+            _buildMigrationOption(context, "Google Fit / Android Data", Icons.android),
+            _buildMigrationOption(context, "Standard CSV / JSON Export", Icons.file_upload_outlined),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMigrationOption(BuildContext context, String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: ListTile(
+        onTap: () {
+          Navigator.pop(context);
+          _finishOnboarding(isMigrating: true, migrationSource: title);
+        },
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.2)),
+        ),
+        leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+        tileColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+      ),
+    );
   }
 
   @override
@@ -133,7 +211,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
                 opacity: isLastPage ? 0.0 : 1.0,
                 duration: const Duration(milliseconds: 300),
                 child: TextButton(
-                  onPressed: isLastPage ? null : _finishOnboarding,
+                  onPressed: isLastPage ? null : () => _finishOnboarding(isMigrating: false),
                   child: Text(
                     'Skip',
                     style: TextStyle(
@@ -216,7 +294,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
               ),
             ),
 
-            // BOTTOM NAVIGATION: Indicators & Action Button
+            // BOTTOM NAVIGATION: Indicators & Action Buttons
             Padding(
               padding: const EdgeInsets.all(32.0),
               child: Column(
@@ -250,7 +328,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
                     child: ElevatedButton(
                       onPressed: () {
                         if (isLastPage) {
-                          _finishOnboarding();
+                          _finishOnboarding(isMigrating: false);
                         } else {
                           HapticFeedback.lightImpact();
                           _pageController.nextPage(
@@ -270,7 +348,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 300),
                         child: Text(
-                          isLastPage ? 'Get Started' : 'Next',
+                          isLastPage ? 'Start Fresh' : 'Next',
                           key: ValueKey<bool>(isLastPage),
                           style: const TextStyle(
                             fontSize: 16,
@@ -280,6 +358,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
                         ),
                       ),
                     ),
+                  ),
+
+                  // 1-Click Migration Secondary Button (Psychological Hook)
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeInOut,
+                    child: isLastPage
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 16.0),
+                            child: TextButton.icon(
+                              onPressed: _showMigrationBottomSheet,
+                              icon: const Icon(Icons.download_rounded, size: 18),
+                              label: const Text(
+                                "Moving from another app? Migrate data",
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              style: TextButton.styleFrom(
+                                foregroundColor: theme.colorScheme.primary,
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ],
               ),

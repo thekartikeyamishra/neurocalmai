@@ -12,10 +12,12 @@ class EnhancedOnboardingScreen extends ConsumerStatefulWidget {
   const EnhancedOnboardingScreen({super.key});
 
   @override
-  ConsumerState<EnhancedOnboardingScreen> createState() => _EnhancedOnboardingScreenState();
+  ConsumerState<EnhancedOnboardingScreen> createState() =>
+      _EnhancedOnboardingScreenState();
 }
 
-class _EnhancedOnboardingScreenState extends ConsumerState<EnhancedOnboardingScreen> {
+class _EnhancedOnboardingScreenState
+    extends ConsumerState<EnhancedOnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
   bool _isProcessing = false;
@@ -107,10 +109,9 @@ class _EnhancedOnboardingScreenState extends ConsumerState<EnhancedOnboardingScr
     setState(() => _isSyncingData = true);
 
     // Call the Service using Riverpod's ref.read() instead of the deprecated Singleton (.instance)
-    final result = await ref.read(dataImportServiceProvider).syncHistoricalData(
-      ref,
-      daysToFetch: 30,
-    );
+    final result = await ref
+        .read(dataImportServiceProvider)
+        .syncHistoricalData(ref, daysToFetch: 30);
 
     if (mounted) {
       setState(() => _isSyncingData = false);
@@ -249,7 +250,8 @@ class _EnhancedOnboardingScreenState extends ConsumerState<EnhancedOnboardingScr
         Expanded(
           child: PageView.builder(
             controller: _pageController,
-            physics: const NeverScrollableScrollPhysics(), // Forces interaction via buttons
+            physics:
+                const NeverScrollableScrollPhysics(), // Forces interaction via buttons
             itemCount: _steps.length,
             itemBuilder: (context, index) {
               final step = _steps[index];
