@@ -7,9 +7,9 @@ class ValueConsentScreen extends StatefulWidget {
   final VoidCallback onAgreed;
   
   const ValueConsentScreen({
-    Key? key, 
+    super.key, 
     required this.onAgreed,
-  }) : super(key: key);
+  });
 
   @override
   State<ValueConsentScreen> createState() => _ValueConsentScreenState();
@@ -21,7 +21,7 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
   bool _isProcessing = false;
 
   Future<void> _recordConsent() async {
-    // Double check state
+    // Double check state to prevent accidental submission
     if (!_dataConsent || !_refundConsent) {
       HapticFeedback.heavyImpact();
       return;
@@ -36,7 +36,8 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
         throw Exception("Authentication required to save preferences.");
       }
 
-      // Store legally binding consent tied to the authenticated user UID
+      // Store legally binding consent tied to the authenticated user UID.
+      // This satisfies Razorpay and Play Store compliance for digital goods.
       await FirebaseFirestore.instance.collection('legal_consents').doc(user.uid).set({
         'userId': user.uid,
         'email': user.email ?? 'unknown',
@@ -45,7 +46,7 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
         'instant_compute_terms_agreed': true,
         'version': '1.0.0_razorpay_compliant',
         // In a full production scenario, you would also capture IP or Device ID here 
-        // if explicitly required by your local compliance laws.
+        // if explicitly required by your local legal jurisdiction.
       }, SetOptions(merge: true));
 
       if (!mounted) return;
@@ -59,6 +60,7 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
           content: Text('Failed to securely save profile: ${e.toString().replaceAll('Exception: ', '')}'),
           backgroundColor: Theme.of(context).colorScheme.error,
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } finally {
@@ -72,11 +74,12 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
     final isButtonEnabled = _dataConsent && _refundConsent && !_isProcessing;
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.background,
+      backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight - 64.0),
@@ -85,17 +88,25 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Header Section (Psychological Framing)
-                      Icon(
-                        Icons.security_rounded, 
-                        size: 48, 
-                        color: theme.colorScheme.primary,
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.security_rounded, 
+                          size: 36, 
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
                       const SizedBox(height: 24),
                       Text(
                         "Let's tailor this entirely to you.", 
                         style: theme.textTheme.headlineMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onBackground,
+                          color: theme.colorScheme.onSurface,
+                          letterSpacing: -0.5,
                           height: 1.2,
                         ),
                       ),
@@ -103,7 +114,7 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
                       Text(
                         "To ensure maximum ROI and a seamless experience, we need to align our AI infrastructure with your specific operational style.", 
                         style: theme.textTheme.bodyLarge?.copyWith(
-                          color: theme.colorScheme.onBackground.withOpacity(0.7),
+                          color: theme.colorScheme.onSurfaceVariant,
                           height: 1.5,
                         ),
                       ),
@@ -115,18 +126,18 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
                         value: _dataConsent,
                         onChanged: (val) => setState(() => _dataConsent = val ?? false),
                         title: "Enable Hyper-Personalization",
-                        subtitle: "I allow the system to analyze my usage patterns to build a custom AI model (SLM) specifically for my needs. Data is anonymized, encrypted, and strictly used to improve my results.",
+                        subtitle: "I allow the system to analyze my usage patterns to build a custom AI model specifically for my needs. Data is anonymized, encrypted, and strictly used to improve my results.",
                         icon: Icons.psychology_rounded,
                       ),
                       
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       
                       // No-Refund Consent (Instant Compute & IP Psychology)
                       _buildConsentCard(
                         theme: theme,
                         value: _refundConsent,
                         onChanged: (val) => setState(() => _refundConsent = val ?? false),
-                        title: "Instant Compute & Resource Allocation",
+                        title: "Instant Compute Allocation",
                         subtitle: "Because our AI instantly generates proprietary strategies and deploys capital-intensive cloud resources on day 1, I understand that subscriptions are non-refundable. I keep full rights to all generated Intellectual Property.",
                         icon: Icons.memory_rounded,
                       ),
@@ -143,8 +154,8 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: theme.colorScheme.primary,
                             foregroundColor: theme.colorScheme.onPrimary,
-                            disabledBackgroundColor: theme.colorScheme.surfaceVariant,
-                            disabledForegroundColor: theme.colorScheme.onSurfaceVariant,
+                            disabledBackgroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.12),
+                            disabledForegroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.38),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
@@ -163,7 +174,7 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
                                 "Secure My Profile & Continue", 
                                 style: TextStyle(
                                   fontSize: 16, 
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.bold,
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -171,14 +182,22 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
                       ),
                       
                       const SizedBox(height: 16),
-                      // Trust Indicator
+                      
+                      // Trust Indicators (Critical for conversion)
                       Center(
-                        child: Text(
-                          "Bank-level AES-256 Encryption • Razorpay Secured",
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onBackground.withOpacity(0.5),
-                            fontWeight: FontWeight.w500,
-                          ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.lock_outline_rounded, size: 14, color: theme.colorScheme.onSurfaceVariant),
+                            const SizedBox(width: 6),
+                            Text(
+                              "Bank-level AES-256 Encryption • Razorpay Secured",
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -200,32 +219,42 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
     required String subtitle,
     required IconData icon,
   }) {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
       decoration: BoxDecoration(
         color: value 
-            ? theme.colorScheme.primaryContainer.withOpacity(0.3)
+            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.4)
             : theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: value 
-              ? theme.colorScheme.primary.withOpacity(0.5)
-              : theme.colorScheme.outline.withOpacity(0.2),
+              ? theme.colorScheme.primary.withValues(alpha: 0.6)
+              : theme.colorScheme.outlineVariant,
           width: 1.5,
         ),
+        boxShadow: value ? [
+          BoxShadow(
+            color: theme.colorScheme.primary.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ] : [],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           onTap: () {
             HapticFeedback.selectionClick();
             onChanged(!value);
           },
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(20.0),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Custom Checkbox mapping for better visual alignment
                 SizedBox(
                   height: 24,
                   width: 24,
@@ -237,22 +266,23 @@ class _ValueConsentScreenState extends State<ValueConsentScreen> {
                     },
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     activeColor: theme.colorScheme.primary,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          Icon(icon, size: 18, color: theme.colorScheme.primary),
+                          Icon(icon, size: 20, color: theme.colorScheme.primary),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               title,
                               style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.bold,
                                 color: theme.colorScheme.onSurface,
                               ),
                             ),

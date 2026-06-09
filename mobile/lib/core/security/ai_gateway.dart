@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../features/monetization/services/margin_engine.dart';
 
-/// Custom exception for AI security violations.
+/// Custom exception for AI security violations or operational limits.
 class AISecurityException implements Exception {
   final String message;
   final String code;
@@ -15,126 +15,121 @@ class AISecurityException implements Exception {
 /// AIGateway acts as the central middleware for all outgoing LLM requests.
 /// 
 /// Primary Responsibilities:
-/// 1. Prompt Injection Sanitization (Client-side defense).
-/// 2. Rate Limiting / DDoS protection (Token Bucket pattern).
-/// 3. Financial Circuit Breaking (via MarginEngine) to guarantee 5x profit.
-/// 
-/// Note: For zero-trust production security, API keys should never be in the client.
-/// This gateway assumes you are routing calls through a secure backend (like Firebase Cloud Functions)
-/// or using FlutterSecureStorage with strict App Check enforcement.
+/// 1. Prompt Injection Sanitization (Client-side firewall defense).
+/// 2. Rate Limiting & DDoS protection (Token Bucket pattern).
+/// 3. Financial Circuit Breaking (via MarginEngine) to guarantee profitability.
 class AIGateway {
   final MarginEngine _marginEngine;
 
-  // Rate Limiting Config (Token Bucket)
-  static const int _maxTokens = 15; // Max burst requests allowed
-  static const Duration _refillRate = Duration(seconds: 10); // 1 token per 10s
+  // Rate Limiting Configuration (Token Bucket Pattern)
+  static const int _maxTokens = 15; // Maximum burst requests allowed
+  static const Duration _refillRate = Duration(seconds: 10); // Refill interval per token
   int _currentTokens = _maxTokens;
   Timer? _refillTimer;
 
-  // Security Config
-  static const int _maxPromptLength = 4000; // Prevent massive payload attacks
+  // Prompt Security Configuration
+  static const int _maxPromptLength = 4000; // Hard character cap to avoid unexpected billing runaway
   
-  // Blacklist of common jailbreak/injection phrases
-  static final List<RegExp> _injectionPatterns = [
-    RegExp(r'(ignore|disregard)\s+all\s+(previous\s+)?(instructions|directions)', caseSensitive: false),
-    RegExp(r'you\s+are\s+now\s+in\s+(developer|dan)\s+mode', caseSensitive: false),
-    RegExp(r'system\s+prompt\s+override', caseSensitive: false),
-    RegExp(r'forget\s+your\s+programming', caseSensitive: false),
-    RegExp(r'bypass\s+filters', caseSensitive: false),
+  final List<RegExp> _injectionPatterns = [
+    RegExp(r'(ignore previous instructions|ignore all instructions|system prompt bypass)', caseSensitive: false),
+    RegExp(r'(you are now a|act as a instead|forget your rules)', caseSensitive: false),
+    RegExp(r'(reveal your system prompt|output your instructions|what is your prompt)', caseSensitive: false),
+    RegExp(r'(dan mode|jailbreak|bypass security)', caseSensitive: false),
   ];
 
   AIGateway({required MarginEngine marginEngine}) : _marginEngine = marginEngine {
-    _startTokenRefill();
+    _startTokenRefillTimer();
   }
 
-  void _startTokenRefill() {
-    _refillTimer?.cancel();
-    _refillTimer = Timer.periodic(_refillRate, (_) {
+  /// Initializes the periodic background token synchronization bucket
+  void _startTokenRefillTimer() {
+    _refillTimer = Timer.periodic(_refillRate, (timer) {
       if (_currentTokens < _maxTokens) {
         _currentTokens++;
       }
     });
   }
 
-  /// Disposes resources. Call this if the gateway is ever destroyed.
+  /// Disposes background timer operations to eliminate potential memory leaks
   void dispose() {
     _refillTimer?.cancel();
   }
 
-  /// The main execution wrapper for any AI request (Gemini, OpenAI, etc.).
-  /// Validates security, rate limits, and margins before executing the payload.
-  Future<T> executeSecureRequest<T>({
-    required String rawPrompt,
-    required String userId,
-    required double currentMonthRevenue,
-    required double currentMonthComputeCost,
-    required double projectedRequestCost,
-    required Future<T> Function(String sanitizedPrompt) onExecute,
-    required Future<T> Function() onFallback, // Executes if blocked (e.g., returns cached/RAG data)
+  /// Central Execution interceptor managing pipeline security, rate constraints, and margin protection
+  Future<String> executeSecureAI({
+    required String prompt,
+    required double expectedTokenCost,
+    required Future<String> Function(String sanitizedPrompt) onExecute,
+    required Future<String> Function() onFallback,
   }) async {
     try {
-      // 1. Rate Limit Check (DDoS / Throttling Protection)
+      // 1. Rate Limiting Check (Token Bucket Violation)
       if (_currentTokens <= 0) {
-        if (kDebugMode) print('AIGateway: Rate limit exceeded. Throttling request.');
-        throw AISecurityException('Too many requests. Please slow down.', 'RATE_LIMIT_EXCEEDED');
+        throw AISecurityException(
+          'Too many requests. Please wait a moment before sending another prompt.',
+          'RATE_LIMIT_EXCEEDED',
+        );
       }
 
-      // 2. Financial Circuit Breaker (5x Margin Protection)
-      final isProfitable = _marginEngine.isUnitProfitable(
-        currentMonthRevenue: currentMonthRevenue,
-        currentMonthComputeCost: currentMonthComputeCost + projectedRequestCost,
-      );
-
-      if (!isProfitable) {
-        if (kDebugMode) print('AIGateway: Unit margin unprofitable. Routing to fallback/RAG.');
-        // Instead of failing and losing the user, gracefully degrade to a free, cached, or local RAG response.
-        return await onFallback();
+      // 2. Maximum Context Token Guardrails
+      if (prompt.length > _maxPromptLength) {
+        throw AISecurityException(
+          'Input prompt context length exceeds allowed thresholds.',
+          'PROMPT_LENGTH_VIOLATION',
+        );
       }
 
-      // 3. Payload Size Validation (Cost & Buffer Overflow Protection)
-      if (rawPrompt.length > _maxPromptLength) {
-        throw AISecurityException('Input exceeds maximum allowed length.', 'PAYLOAD_TOO_LARGE');
+      // 3. Financial Circuit Breaking (Margin and Profit Protection Check)
+      // If our current workspace account context has run out of funds or hit a hard cap, prevent execution.
+      if (expectedTokenCost > 0.0 && !_marginEngine.isTransactionProfitable(expectedTokenCost)) {
+        throw AISecurityException(
+          'Operational spending threshold reached. Processing deferred.',
+          'FINANCIAL_CIRCUIT_BREAKER_ACTIVE',
+        );
       }
 
-      // 4. Prompt Injection Sanitization
-      final cleanPrompt = _sanitizePrompt(rawPrompt);
-
-      // Deduct rate limit token
+      // Consume one rate limiting token from the tracking bucket
       _currentTokens--;
 
-      // 5. Execute actual AI call
+      // 4. Prompt Sanitization Inspection
+      final cleanPrompt = _sanitizePrompt(prompt);
+
+      // 5. Execute secure underlying platform AI transaction flow
       return await onExecute(cleanPrompt);
 
     } on AISecurityException catch (e) {
-      // Log security events to a secure analytics endpoint here in production
-      if (kDebugMode) print('Security Block: ${e.message}');
+      if (kDebugMode) {
+        print('🛡️ [AIGateway Security Block]: ${e.message} [${e.code}]');
+      }
       rethrow;
     } catch (e) {
-      if (kDebugMode) print('AIGateway Unexpected Error: $e');
-      // If it's a network or unknown error, fallback to keep the app fault-tolerant
+      if (kDebugMode) {
+        print('⚠️ [AIGateway Unexpected Error]: $e');
+      }
+      // Automatic fallback graceful mitigation loop to shield the presentation screen layer
       return await onFallback();
     }
   }
 
-  /// Scans the prompt for malicious injection patterns and strips them, 
-  /// or throws an exception if the prompt is entirely malicious.
+  /// Robust scanner checking against injection variations and stripping unauthorized sub-elements
   String _sanitizePrompt(String input) {
     String sanitized = input;
 
+    // Reject and strip adversarial layout variations
     for (var pattern in _injectionPatterns) {
       if (pattern.hasMatch(sanitized)) {
-        if (kDebugMode) print('AIGateway: Malicious pattern detected: ${pattern.pattern}');
-        // Option A: Strip the malicious part
+        if (kDebugMode) {
+          print('🛡️ [AIGateway]: Malicious payload match blocked: ${pattern.pattern}');
+        }
+        // Scrub the problematic text slice out of the pipeline footprint
         sanitized = sanitized.replaceAll(pattern, '[REDACTED_SECURITY_POLICY]');
-        
-        // Option B: Throw immediately (Uncomment to use strict mode)
-        // throw AISecurityException('Malicious prompt structure detected.', 'PROMPT_INJECTION_BLOCKED');
       }
     }
 
-    // Basic SQL/Script tag stripping to prevent secondary injection if data is ever rendered in a webview
-    sanitized = sanitized.replaceAll(RegExp(r'<script.*?>.*?</script>', caseSensitive: false, multiLine: true), '');
-    
-    return sanitized.trim();
+    // Secondary layer cleaning to scrub script blocks if content ever passes to WebViews
+    sanitized = sanitized.replaceAll(RegExp(r'<script.*?>([\s\S]*?)<\/script>', caseSensitive: false), '');
+    sanitized = sanitized.replaceAll(RegExp(r'<\/?[^>]+(>|$)', caseSensitive: false), ''); // Strips markup elements
+
+    return sanitized;
   }
 }

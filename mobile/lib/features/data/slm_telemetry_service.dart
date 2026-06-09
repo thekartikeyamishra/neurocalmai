@@ -13,8 +13,7 @@ class SLMTelemetryService {
   SLMTelemetryService({FirebaseFirestore? firestore}) 
       : _firestore = firestore ?? FirebaseFirestore.instance;
 
-  /// Logs user behavior in a feature-engineered JSONL-style format 
-  /// ready for ML pipelines.
+  /// Logs user behavior in a feature-engineered format ready for fine-tuning ML pipelines.
   Future<void> logBehavioralPattern({
     required String userId,
     required String featureContext,
@@ -28,77 +27,81 @@ class SLMTelemetryService {
       final scrubbedPrompt = _scrubPII(prompt);
       final scrubbedResponse = _scrubPII(aiResponse);
       
-      // 2. Feature Engineering Format
+      // 2. Feature Engineering Format (Optimized for JSONL dataset generation)
       final mlPayload = {
         // Use a one-way cryptographic hash of the user ID to maintain session continuity 
         // across datasets without exposing the actual identity.
         'session_hash': userId.hashCode.toString(),
         'timestamp': FieldValue.serverTimestamp(),
-        'context': featureContext,
-        'input_sequence': scrubbedPrompt,
-        'output_sequence': scrubbedResponse,
-        'metrics': {
-          'dwell_time': dwellTimeSeconds,
-          'converted': convertedToAction,
-          'engagement_score': _calculateEngagement(dwellTimeSeconds, convertedToAction),
-        },
-        'version': '1.0.0', // Helps version control the dataset schema
+        'feature_context': featureContext,
+        'input_prompt_length': scrubbedPrompt.length,
+        'output_response_length': scrubbedResponse.length,
+        'dwell_time_seconds': dwellTimeSeconds,
+        'converted_to_action': convertedToAction ? 1 : 0,
+        'engagement_score': _calculateEngagementScore(dwellTimeSeconds, convertedToAction),
+        
+        // Structured training pair format matching standard fine-tuning input layouts
+        'dataset_pair': {
+          'instruction': 'You are a compassionate, structured CBT assistant operating in the context of $featureContext. Provide a localized, empathetic response and detect somatic patterns.',
+          'input': scrubbedPrompt,
+          'output': scrubbedResponse,
+        }
       };
 
-      // 3. Store in a secure, isolated data lake collection separate from operational data
-      await _firestore.collection('slm_training_lake').add(mlPayload);
-
+      // 3. Append-only write to Firestore under a dedicated telemetry collection
+      // Governed by backend security rules that allow writes but prevent read/update/delete operations.
+      await _firestore.collection('slm_telemetry_lake').add(mlPayload);
+      
       if (kDebugMode) {
-        print('SLM Telemetry successfully recorded for context: $featureContext');
+        print('📊 [SLM Telemetry]: Successfully captured sanitized interaction slice.');
       }
     } catch (e) {
-      // Fail silently: Analytics and telemetry must NEVER break the user experience
-      if (kDebugMode) {
-        print('SLM Telemetry Error: $e');
-      }
+      // Fail silently in production to insulate the main thread and client user interface
+      debugPrint('⚠️ [SLM Telemetry Failure Intercepted]: $e');
     }
   }
 
-  /// Calculates a standardized engagement score (0.0 to 10.0) 
-  /// to filter high-quality training data later.
-  double _calculateEngagement(int dwellTimeSeconds, bool actionTaken) {
-    // Baseline score from time spent reading/interacting
-    double score = dwellTimeSeconds * 0.15; 
+  /// Evaluates implicit interest via raw platform interaction telemetry.
+  double _calculateEngagementScore(int dwellTime, bool actionTaken) {
+    double score = 0.0;
     
-    // Massive bump for taking a psychological or physical action (conversion)
+    // Logarithmic curve for dwell time weighting: steeper growth early on, plateaus at higher values
+    if (dwellTime > 0) {
+      score += (dwellTime <= 60) ? (dwellTime * 0.05) : 3.0;
+    }
+    
+    // Core conversion bonus weight
     if (actionTaken) {
-      score += 5.0;
+      score += 7.0;
     }
 
-    // Clamp between 0.0 and 10.0
     return score.clamp(0.0, 10.0);
   }
 
-  /// Aggressively strips out common PII (Emails, Phone Numbers, Credit Cards).
-  /// Note: In a true enterprise environment, this would be augmented with an 
-  /// on-device NLP Named Entity Recognition (NER) model to catch edge cases.
+  /// Aggressively strips out common PII (Emails, Phone Numbers, Credit Cards) 
+  /// before data is committed to the cloud architecture.
   String _scrubPII(String text) {
     if (text.isEmpty) return text;
 
     String cleanText = text;
 
     // 1. Strip Email Addresses
-    final emailRegex = RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}');
+    final emailRegex = RegExp(
+      r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
+      caseSensitive: false,
+    );
     cleanText = cleanText.replaceAll(emailRegex, '[EMAIL_REDACTED]');
 
-    // 2. Strip Phone Numbers (Global/India formats)
-    // Matches patterns like +91 9876543210, 1-800-555-1234, etc.
-    final phoneRegex = RegExp(r'(?:\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}');
+    // 2. Strip Phone Numbers (Matches common international and local formats)
+    final phoneRegex = RegExp(
+      r'(?:\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}',
+    );
     cleanText = cleanText.replaceAll(phoneRegex, '[PHONE_REDACTED]');
 
-    // 3. Strip Potential Credit Cards (16 digit numbers, spaced or dashed)
-    final ccRegex = RegExp(r'\b(?:\d[ -]*?){13,16}\b');
-    cleanText = cleanText.replaceAll(ccRegex, '[CARD_REDACTED]');
+    // 3. Strip Potential Credit Card Sequences (Basic 13-16 digit numerical sequences)
+    final creditCardRegex = RegExp(r'\b(?:\d[ -]*?){13,16}\b');
+    cleanText = cleanText.replaceAll(creditCardRegex, '[CARD_REDACTED]');
 
-    // 4. Strip Potential SSN / Aadhaar formats (hyphenated or spaced numbers)
-    final idRegex = RegExp(r'\b\d{3,4}[\s-]\d{3,4}[\s-]\d{4}\b');
-    cleanText = cleanText.replaceAll(idRegex, '[ID_REDACTED]');
-
-    return cleanText.trim();
+    return cleanText;
   }
 }

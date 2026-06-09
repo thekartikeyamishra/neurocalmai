@@ -89,7 +89,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       }
     } catch (e) {
       // Fail silently to prevent dashboard from breaking if network/auth drops
-      debugPrint('Silent Error fetching waitlist status: $e');
+      debugPrint('⚠️ [Dashboard]: Silent Error fetching waitlist status: $e');
     }
   }
 
@@ -99,7 +99,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('waitlist_nudge_dismissed', true);
     } catch (e) {
-      debugPrint('Failed to save dismissal preference');
+      debugPrint('⚠️ [Dashboard]: Failed to save dismissal preference');
     }
   }
 
@@ -137,7 +137,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                         _getDynamicGreeting(),
                         style: TextStyle(
                           fontSize: 16,
-                          color: Colors.grey[600],
+                          color: theme.colorScheme.onSurfaceVariant,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.5,
                         ),
@@ -169,7 +169,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                         "Recovery Tools",
                         onSeeAll: () {
                           HapticFeedback.lightImpact();
-                          // Ensure ToolsLibraryScreen is imported or handled properly in your routing
                           // Navigator.push(
                           //   context,
                           //   MaterialPageRoute(
@@ -483,12 +482,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       },
       child: Container(
         decoration: BoxDecoration(
-          color: isAlert ? const Color(0xFFFFF0EC) : Colors.white,
+          color: isAlert ? const Color(0xFFFFF0EC) : theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+          border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.05)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
+              color: theme.colorScheme.shadow.withValues(alpha: 0.02),
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
@@ -516,7 +515,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
               label,
               style: TextStyle(
                 fontWeight: FontWeight.w700,
-                color: isAlert ? Colors.deepOrange[800] : Colors.black87,
+                color: isAlert ? Colors.deepOrange[800] : theme.colorScheme.onSurface,
               ),
             ),
           ],

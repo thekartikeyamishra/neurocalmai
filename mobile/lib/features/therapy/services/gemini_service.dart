@@ -9,6 +9,10 @@ class GeminiService {
   static final GeminiService instance = GeminiService._internal();
   GenerativeModel? _model;
 
+  // 🚨 COST OPTIMIZER: Maximum previous messages to send. 
+  // 4 turns (2 user, 2 AI) is enough for CBT context without burning tokens.
+  static const int _maxHistoryTurns = 4; 
+
   GeminiService._internal() {
     _initModel();
   }
@@ -20,31 +24,26 @@ class GeminiService {
       return;
     }
 
-    // 🚨 ARCHITECT FIX: Locked model to 'gemini-1.5-flash' to satisfy Dart SDK v1beta routing
+    // 🚨 COST OPTIMIZER: Use flash instead of pro/latest. 
+    // gemini-1.5-flash is extremely cheap and incredibly fast for JSON tasks.
     _model = GenerativeModel(
-      model: 'gemini-1.5-latest', 
+      model: 'gemini-1.5-flash', 
       apiKey: apiKey,
       generationConfig: GenerationConfig(
-        temperature: 0.6,
-        maxOutputTokens: 250,
+        temperature: 0.4, // Lowered slightly for more concise, less rambling output (saves output tokens)
+        maxOutputTokens: 150, // Reduced from 250: forces the AI to be brief and saves money
         responseMimeType: 'application/json', // Forces strict JSON output
       ),
     );
   }
 
   String _getSystemPrompt(String dialect) {
+    // 🚨 COST OPTIMIZER: Minimized system prompt. Every word here costs tokens on every single turn.
     return '''
-    You are NeuroCalm, a highly empathetic Cognitive Behavioral Therapy (CBT) assistant.
-    Rules:
-    1. Validate the user's emotions.
-    2. Keep responses short and simple.
-    3. Never provide medical diagnoses.
-    4. You must write the actual therapy reply entirely in the dialect/language: $dialect.
-    5. The JSON keys MUST REMAIN IN ENGLISH. Only translate the value of "reply".
-    
-    Required JSON Structure:
+    You are NeuroCalm, a CBT assistant.
+    Rules: Validate emotions, be very brief, no medical diagnoses. Reply in $dialect. JSON keys must be English.
     {
-      "reply": "Your localized empathetic response here.",
+      "reply": "Empathetic localized response",
       "slm_features": {
         "detected_emotion": "anxiety|sadness|anger|neutral",
         "cognitive_distortion": "catastrophizing|black_and_white_thinking|none",
@@ -54,12 +53,31 @@ class GeminiService {
   }
 
   /// Processes Text Chat directly via Gemini
-  Future<Map<String, dynamic>> generateTextReply(String userMessage, List<Map<String, String>> history, AppLanguage language) async {
+  Future<Map<String, dynamic>> generateTextReply(
+    String userMessage, 
+    List<Map<String, String>> history, 
+    AppLanguage language
+  ) async {
     if (_model == null) throw Exception("Gemini not initialized.");
+
+    // 🚨 ZERO-COST INTERCEPTOR: Do not call LLM for basic pleasantries or 1-word agreements
+    final normalizedMsg = userMessage.trim().toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
+    
+    if (normalizedMsg == 'hi' || normalizedMsg == 'hello' || normalizedMsg == 'hey') {
+      return _getFreeFallbackReply("Hello. How are you feeling right now?");
+    }
+    if (normalizedMsg == 'ok' || normalizedMsg == 'okay' || normalizedMsg == 'thanks' || normalizedMsg == 'thank you') {
+      return _getFreeFallbackReply("I'm here whenever you're ready to share more.");
+    }
+
+    // 🚨 COST OPTIMIZER: Sliding Window. Only take the last N messages to prevent exponential token costs.
+    final recentHistory = history.length > _maxHistoryTurns 
+        ? history.sublist(history.length - _maxHistoryTurns) 
+        : history;
 
     final prompt = [
       Content.system(_getSystemPrompt(language.displayName)),
-      ...history.map((h) => Content(h['role'] == 'user' ? 'user' : 'model', [TextPart(h['content'] ?? '')])),
+      ...recentHistory.map((h) => Content(h['role'] == 'user' ? 'user' : 'model', [TextPart(h['content'] ?? '')])),
       Content.text(userMessage)
     ];
 
@@ -81,10 +99,10 @@ class GeminiService {
       final audioBytes = await audioFile.readAsBytes();
       
       final prompt = [
-        Content.system(_getSystemPrompt(language.displayName) + "\nTranscribe the audio and respond to it."),
+        Content.system(_getSystemPrompt(language.displayName)),
         Content.multi([
           DataPart('audio/mp4', audioBytes),
-          TextPart("Listen to this audio and provide the CBT response."),
+          TextPart("Transcribe the audio and provide the CBT response."),
         ])
       ];
 
@@ -98,15 +116,26 @@ class GeminiService {
 
   Map<String, dynamic> _parseResponse(String? text) {
     if (text == null) throw Exception("Empty response from AI");
+    
     try {
+      // Clean potential markdown blocks hallucinaton
       final cleanText = text.replaceAll('```json', '').replaceAll('```', '').trim();
       return jsonDecode(cleanText);
     } catch (e) {
-      debugPrint('[Gemini Parse Error]: $e');
-      return {
-        "reply": "I am here for you. Please tell me more.",
-        "slm_features": {"detected_emotion": "unknown", "cognitive_distortion": "none", "urgency_level": "low"}
-      };
+      debugPrint('[Gemini Parse Error]: $e\nRaw Output: $text');
+      return _getFreeFallbackReply("I am here for you. Please tell me more.");
     }
+  }
+
+  // Local helper for zero-cost routing and error states
+  Map<String, dynamic> _getFreeFallbackReply(String replyText) {
+    return {
+      "reply": replyText,
+      "slm_features": {
+        "detected_emotion": "neutral", 
+        "cognitive_distortion": "none", 
+        "urgency_level": "low"
+      }
+    };
   }
 }

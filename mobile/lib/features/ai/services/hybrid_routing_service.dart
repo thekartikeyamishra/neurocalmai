@@ -3,34 +3,34 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // 🚨 ARCHITECT FIX: Isolated Caching
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Internal Integrations
 import '../prompts/cbt_secure_prompts.dart';
 
 /// Riverpod Provider for Dependency Injection and Testing
-/// Now fully decoupled from the Journal Service for better modularity.
+/// Fully decoupled from the Journal Service for strict modularity.
 final hybridRoutingProvider = Provider<HybridRoutingService>((ref) {
   return HybridRoutingService();
 });
 
 class HybridRoutingService {
   
-  // 🚨 TECH LEAD FIX: Cache Versioning
+  // TECH LEAD FIX: Cache Versioning
   // Bump this string (e.g., 'v2_') if you update your AI prompts in the future.
   // This instantly invalidates old cached responses across all devices.
   static const String _cacheVersion = 'v1_';
 
-  /// Computes a clean cryptographic hash of user text to use as a semantic cache query key.
-  /// Converts to lowercase and trims to ensure slight variations hit the cache.
+  /// COST OPTIMIZER: Aggressive Normalization.
+  /// Strips all punctuation so "I'm sad." and "im sad" hit the same $0.00 cache.
   String _generateCacheKey(String text) {
-    final normalized = text.trim().toLowerCase();
+    final normalized = text.trim().toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
     final hash = md5.convert(utf8.encode(normalized)).toString();
-    // 🚨 Prefixes the hash with the current cache version
+    // Prefixes the hash with the current cache version
     return 'ai_cache_$_cacheVersion$hash';
   }
 
-  /// 🚨 ARCHITECT FIX: Self-contained O(1) memory cache check. 
+  /// Self-contained O(1) memory cache check. 
   /// Vastly faster than querying SQLite and prevents schema pollution.
   Future<String?> _getCachedInsight(String cacheKey) async {
     try {
@@ -86,6 +86,17 @@ class HybridRoutingService {
     required bool isPremiumUser,
     required Future<String> Function(String payload) cloudProvider,
   }) async {
+    
+    // ZERO-COST TRIAGE: Don't do heavy processing on ultra-short text
+    if (userText.trim().split(' ').length <= 2 && !isPremiumUser) {
+        return {
+          "detected_emotion": "Neutral",
+          "cognitive_distortion": "None",
+          "reframing_action": "Acknowledge the user's presence.",
+          "urgency_level": "Low"
+        };
+    }
+
     final cacheKey = _generateCacheKey(userText);
     
     // ------------------------------------------------------------------------
@@ -93,7 +104,9 @@ class HybridRoutingService {
     // ------------------------------------------------------------------------
     final cachedInsight = await _getCachedInsight(cacheKey);
     if (cachedInsight != null && cachedInsight.isNotEmpty) {
-      debugPrint('✅ [Hybrid Router]: Cache Hit! Bypassing inference. Cost: \$0.00');
+      if (kDebugMode) {
+        print('✅ [Hybrid Router]: Cache Hit! Bypassing inference. Cost: \$0.00');
+      }
       return jsonDecode(cachedInsight);
     }
 
@@ -101,7 +114,9 @@ class HybridRoutingService {
     // STEP 2: FREE TIER (Offline On-Device SLM Fallback)
     // ------------------------------------------------------------------------
     if (!isPremiumUser) {
-      debugPrint('⚡ [Hybrid Router]: Routing to On-Device Logic (Free Tier)');
+      if (kDebugMode) {
+        print('⚡ [Hybrid Router]: Routing to On-Device Logic (Free Tier)');
+      }
       
       // Failsafe heuristic fallback for non-premium users
       final localSlmResponse = {
@@ -118,7 +133,10 @@ class HybridRoutingService {
     // ------------------------------------------------------------------------
     // STEP 3: PREMIUM TIER (Cloud LLM Execution)
     // ------------------------------------------------------------------------
-    debugPrint('☁️ [Hybrid Router]: Routing to Cloud LLM (Premium Tier)');
+    if (kDebugMode) {
+      print('☁️ [Hybrid Router]: Routing to Cloud LLM (Premium Tier)');
+    }
+    
     try {
       // Inject strict delimiters to prevent Prompt Injection attacks
       final payload = CbtSecurePrompts.compilePayload(userText, somaticMetrics);

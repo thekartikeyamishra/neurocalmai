@@ -47,16 +47,16 @@ class WaitlistService {
       }, SetOptions(merge: true));
 
       if (kDebugMode) {
-        print('Successfully joined waitlist for city: $city');
+        print('✅ [WaitlistService]: Successfully joined waitlist for city: $city');
       }
     } on FirebaseException catch (e) {
       if (kDebugMode) {
-        print('FirebaseError joining waitlist: ${e.message}');
+        print('⚠️ [WaitlistService FirebaseError]: ${e.message}');
       }
       throw Exception('Database error: Could not process your request. Please try again.');
     } catch (e) {
       if (kDebugMode) {
-        print('Unknown Error joining waitlist: $e');
+        print('⚠️ [WaitlistService Unknown Error]: $e');
       }
       throw Exception('An unexpected error occurred. Please try again later.');
     }
@@ -75,13 +75,13 @@ class WaitlistService {
       return snapshot.count ?? 0;
     } on FirebaseException catch (e) {
       if (kDebugMode) {
-        print('FirebaseError fetching waitlist count: ${e.message}');
+        print('⚠️ [WaitlistService FirebaseError fetching count]: ${e.message}');
       }
       // Graceful fallback to 0 to prevent UI crashes if permission or network fails
       return 0;
     } catch (e) {
       if (kDebugMode) {
-        print('Unknown Error fetching waitlist count: $e');
+        print('⚠️ [WaitlistService Unknown Error fetching count]: $e');
       }
       return 0;
     }
@@ -98,9 +98,10 @@ class WaitlistService {
       return doc.exists;
     } catch (e) {
       if (kDebugMode) {
-        print('Error checking waitlist status: $e');
+        print('⚠️ [WaitlistService Error checking status]: $e');
       }
-      // Default to false on error, or true if you strictly want to avoid over-prompting
+      // Default to false on error.
+      // Returning false ensures the app doesn't crash, and can retry the nudge later if the network drops.
       return false; 
     }
   }
