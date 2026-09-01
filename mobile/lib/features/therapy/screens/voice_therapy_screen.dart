@@ -66,7 +66,8 @@ class _VoiceTherapyScreenState extends ConsumerState<VoiceTherapyScreen>
 
       // Trigger the ASO review service if the session was successful
       if (notifier.lastAiTextResponse.isNotEmpty) {
-        await AsoReviewService.instance.evaluateSessionForReview(4, 8);
+        // 🚨 FIX: Removed positional arguments to match the updated AsoReviewService
+        await AsoReviewService.instance.evaluateSessionForReview();
       }
     }
   }
@@ -153,7 +154,7 @@ class _VoiceTherapyScreenState extends ConsumerState<VoiceTherapyScreen>
                           // Layer 2: Core Orb
                           _buildCoreOrb(voiceState),
 
-                          // Layer 3: Glassmorphism Icon Overlay
+                          // Layer 3: Frosted Glass Icon Overlay (Updated cSpell)
                           _buildStateIcon(voiceState),
                         ],
                       ),

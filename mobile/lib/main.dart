@@ -1,3 +1,4 @@
+// cSpell:ignore Neuro, neuro
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -231,8 +232,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   /// Evaluates local storage and Firebase Auth to determine the starting destination
   Future<void> _checkExistingSession() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
+      final preferences = await SharedPreferences.getInstance();
+      final hasSeenOnboarding = preferences.getBool('has_seen_onboarding') ?? false;
 
       User? user;
       try {
@@ -251,9 +252,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         Navigator.pushReplacement(
           context,
           PageRouteBuilder(
-            pageBuilder: (_, __, ___) => const DashboardScreen(),
-            transitionsBuilder: (_, a, __, c) =>
-                FadeTransition(opacity: a, child: c),
+            pageBuilder: (context, animation, secondaryAnimation) => const DashboardScreen(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+                FadeTransition(opacity: animation, child: child),
             transitionDuration: const Duration(milliseconds: 800),
           ),
         );
@@ -272,8 +273,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     setState(() => _isRouting = true);
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
+      final preferences = await SharedPreferences.getInstance();
+      final hasSeenOnboarding = preferences.getBool('has_seen_onboarding') ?? false;
 
       if (!mounted) return;
 
@@ -318,7 +319,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: AppTokens.spacing32,
-                vertical: AppTokens.spacing40,
+                vertical: 40.0, // Replaced undefined AppTokens.spacing40
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -340,12 +341,12 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: AppTokens.spacing40),
+                  const SizedBox(height: 40.0), // Replaced undefined AppTokens.spacing40
                   Text(
                     'Find your\ncenter.',
                     style: theme.textTheme.displayLarge,
                   ),
-                  const SizedBox(height: AppTokens.spacing20),
+                  const SizedBox(height: 20.0), // Replaced undefined AppTokens.spacing20
                   Text(
                     'Your private, offline-ready space for emotional clarity and cognitive behavioral therapy.',
                     style: theme.textTheme.bodyLarge?.copyWith(

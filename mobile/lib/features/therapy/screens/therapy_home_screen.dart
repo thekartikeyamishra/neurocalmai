@@ -24,7 +24,7 @@ import '../../journal/screens/journal_timeline_screen.dart';
 
 /// The 10/10 Adaptive Tools Library Screen.
 /// This screen progressively discloses the app's full capabilities and 
-/// dynamically adjusts its layout for phones, foldables, and tablets.
+/// dynamically adjusts its layout for phones, tablets, and larger screens.
 class ToolsLibraryScreen extends ConsumerWidget {
   const ToolsLibraryScreen({super.key});
 
@@ -131,7 +131,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(AppTokens.spacing16),
+                              padding: const EdgeInsets.all(16.0),
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.2), 
                                 shape: BoxShape.circle,
@@ -352,7 +352,7 @@ class ToolsLibraryScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(AppTokens.spacing12),
+                  padding: const EdgeInsets.all(12.0),
                   decoration: BoxDecoration(color: iconBgColor, shape: BoxShape.circle),
                   child: Icon(icon, color: iconColor, size: 26),
                 ),

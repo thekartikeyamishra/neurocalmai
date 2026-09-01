@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+// Services
 import '../../tracking/services/review_service.dart';
-import '../../monetization/screens/insight_reward_screen.dart';
-import '../../settings/providers/language_provider.dart';
 import '../services/openai_service.dart'; 
-
 import '../../journal/services/local_journal_service.dart';
+
+// Providers & Screens
+import '../../settings/providers/language_provider.dart';
+import '../../monetization/screens/insight_reward_screen.dart';
 
 // ============================================================================
 // STATE MANAGEMENT: Chat History & Analytics
@@ -95,7 +97,7 @@ class ChatNotifier extends Notifier<ChatState> {
       );
 
     } catch (e) {
-      debugPrint('[Text Therapy System Error]: $e');
+      debugPrint('🚨 [Text Therapy System Error]: $e');
       // Graceful offline fallback
       state = state.copyWith(
         messages: [
@@ -173,7 +175,8 @@ class _TextTherapyScreenState extends ConsumerState<TextTherapyScreen> {
 
     if (summary.isNotEmpty) {
       // 1. Trigger ASO rating loop for highly successful sessions
-      await AsoReviewService.instance.evaluateSessionForReview(4, 8);
+      // 🚨 FIX: Removed positional arguments to align with updated AsoReviewService signature
+      await AsoReviewService.instance.evaluateSessionForReview();
 
       // 2. Extract and sanitize insight data for the local journal
       final String emotion = features?['detected_emotion']?.toString() ?? 'Neutral';

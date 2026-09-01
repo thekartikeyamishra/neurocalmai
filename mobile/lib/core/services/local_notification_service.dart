@@ -1,3 +1,4 @@
+// cSpell:disable
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -30,6 +31,7 @@ class LocalNotificationService {
       // Initialize native settings
       const AndroidInitializationSettings androidSettings =
           AndroidInitializationSettings('@mipmap/ic_launcher');
+
       const DarwinInitializationSettings iosSettings =
           DarwinInitializationSettings(
             requestAlertPermission:
@@ -37,13 +39,15 @@ class LocalNotificationService {
             requestBadgePermission: false,
             requestSoundPermission: false,
           );
+
       const InitializationSettings initSettings = InitializationSettings(
         android: androidSettings,
         iOS: iosSettings,
       );
 
+      // 🚨 FIX: The correct named parameter for FlutterLocalNotificationsPlugin.initialize() is `settings:`
       await _notificationsPlugin.initialize(
-        initSettings,
+        settings: initSettings,
         onDidReceiveNotificationResponse: (NotificationResponse response) {
           // Handle routing when the user taps the notification
           // e.g., triggering a navigator key to open the VoiceReframeScreen
@@ -128,15 +132,14 @@ class LocalNotificationService {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
 
+    // 🚨 FIX: Modern SDK v14+ requires fully named arguments for zonedSchedule
     await _notificationsPlugin.zonedSchedule(
-      0, // Notification ID
-      'Time to center yourself.',
-      'Take 60 seconds to vent to the AI and clear your mind before bed.',
-      scheduledDate,
-      platformSpecifics,
+      id: 0,
+      title: 'Time to center yourself.',
+      body: 'Take 60 seconds to vent to the AI and clear your mind before bed.',
+      scheduledDate: scheduledDate,
+      notificationDetails: platformSpecifics,
       androidScheduleMode: AndroidScheduleMode.inexact, // Battery optimized
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents:
           DateTimeComponents.time, // Repeats daily at this exact time
       payload: 'evening_reflection_trigger',
@@ -154,3 +157,4 @@ class LocalNotificationService {
     }
   }
 }
+// cSpell:enable

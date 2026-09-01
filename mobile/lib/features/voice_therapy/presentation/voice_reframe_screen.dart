@@ -118,14 +118,17 @@ class _VoiceReframeScreenState extends ConsumerState<VoiceReframeScreen> with Si
       _errorMessage = null;
     });
 
+    // 🚨 FIX: Updated to use the modern SpeechListenOptions object to resolve deprecation warnings
     await _speech.listen(
       onResult: (val) {
         setState(() {
           _transcribedText = val.recognizedWords;
         });
       },
-      cancelOnError: true,
-      partialResults: true,
+      listenOptions: stt.SpeechListenOptions(
+        cancelOnError: true,
+        partialResults: true,
+      ),
     );
   }
 
@@ -188,7 +191,7 @@ class _VoiceReframeScreenState extends ConsumerState<VoiceReframeScreen> with Si
           content: Row(
             children: [
               Icon(isHelpful ? Icons.check_circle_rounded : Icons.sync_rounded, color: Colors.white),
-              const SizedBox(width: AppTokens.spacing12),
+              const SizedBox(width: 12.0), // Replaced undefined token AppTokens.spacing12
               Expanded(
                 child: Text(
                   isHelpful ? 'Neural pathway reinforced.' : 'Bias registered for recalibration.',
@@ -357,7 +360,7 @@ class _VoiceReframeScreenState extends ConsumerState<VoiceReframeScreen> with Si
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(Icons.arrow_forward_rounded, color: AppTokens.primary, size: 20),
-              const SizedBox(width: AppTokens.spacing12),
+              const SizedBox(width: 12.0), // Replaced undefined token AppTokens.spacing12
               Expanded(
                 child: Text(
                   action,

@@ -24,9 +24,9 @@ import '../../monetization/widgets/smart_banner_card.dart';
 import '../../monetization/geo_router.dart';
 
 /// The 10/10 Adaptive Dashboard Screen.
-/// This screen acts as the central hub of the product architecture. It actively 
-/// listens to the design tokens, scales dynamically based on the window size 
-/// (phone vs. tablet), securely displays the user's local streak data, and 
+/// This screen acts as the central hub of the product architecture. It actively
+/// listens to the design tokens, scales dynamically based on the window size
+/// (phone vs. tablet), securely displays the user's local streak data, and
 /// seamlessly routes them to the new AI tools and RevenueCat paywalls.
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -44,7 +44,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     super.initState();
     // Pre-fetch local SQLite streak data on boot to ensure zero-latency UI
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(streakProvider.notifier).refresh();
+      // Modern Riverpod equivalent for triggering a refresh/rebuild
+      ref.invalidate(streakProvider);
     });
   }
 
@@ -62,8 +63,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     // 10/10 Adaptive System: Determines spacing based on physical window size
     final horizontalPadding = AdaptiveLayout.getHorizontalPadding(context);
     final sizeClass = AdaptiveLayout.getSizeClass(context);
-    
-    // We wrap the entire dashboard in our StatefulView. 
+
+    // We wrap the entire dashboard in our StatefulView.
     // If the database is locked or loading, it handles the skeleton safely.
     return Scaffold(
       backgroundColor: AppTokens.background,
@@ -73,16 +74,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           content: SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: AppTokens.spacing24),
+              padding: EdgeInsets.symmetric(
+                horizontal: horizontalPadding,
+                vertical: AppTokens.spacing24,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildHeader(),
                   const SizedBox(height: AppTokens.spacing32),
-                  
+
                   _buildHeroCard(),
                   const SizedBox(height: AppTokens.spacing24),
-                  
+
                   // Adaptive Layout: Row on Tablets/Desktop, Column on Mobile
                   if (sizeClass == WindowSizeClass.compact) ...[
                     _buildMetricsRow(),
@@ -94,14 +98,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       children: [
                         Expanded(flex: 2, child: _buildNavigationMenu()),
                         const SizedBox(width: AppTokens.spacing24),
-                        Expanded(flex: 1, child: _buildMetricsRow(isVertical: true)),
+                        Expanded(
+                          flex: 1,
+                          child: _buildMetricsRow(isVertical: true),
+                        ),
                       ],
-                    )
+                    ),
                   ],
 
                   // Inline Native Advanced AdMob Gateway (Only for Freemium users)
                   _buildAdFallbackGateway(),
-
                 ],
               ),
             ),
@@ -146,15 +152,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: GestureDetector(
             onTap: () {
               _triggerHaptic();
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const UserProfileScreen()));
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const UserProfileScreen()),
+              );
             },
             child: Container(
-              padding: const EdgeInsets.all(AppTokens.spacing12),
+              padding: const EdgeInsets.all(12.0),
               decoration: const BoxDecoration(
                 color: AppTokens.primaryContainer,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.person_outline_rounded, color: AppTokens.primary, size: 24),
+              child: const Icon(
+                Icons.person_outline_rounded,
+                color: AppTokens.primary,
+                size: 24,
+              ),
             ),
           ),
         ),
@@ -165,7 +178,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget _buildHeroCard() {
     return Semantics(
       container: true,
-      label: 'AI Therapy Engine. Clear your mind. Vocalize your anxious thoughts securely.',
+      label:
+          'AI Therapy Engine. Clear your mind. Vocalize your anxious thoughts securely.',
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(AppTokens.spacing32),
@@ -184,35 +198,55 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: AppTokens.spacing12, vertical: AppTokens.spacing4),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: AppTokens.spacing4,
+              ),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(AppTokens.radiusPill),
               ),
               child: const Text(
-                "AI THERAPY ENGINE", 
-                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0)
+                "AI THERAPY ENGINE",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0,
+                ),
               ),
             ),
             const SizedBox(height: AppTokens.spacing16),
             const Text(
               "Clear your mind.",
-              style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              ),
             ),
             const SizedBox(height: AppTokens.spacing8),
             Text(
               "Vocalize your anxious thoughts securely. Gemini AI will instantly construct a clinical CBT reframe.",
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14, height: 1.5),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 14,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: AppTokens.spacing32),
-            
+
             // Using our 10/10 Design System Button
             NeuroButton(
               label: "Begin Voice Session",
               icon: Icons.mic_none_rounded,
               onPressed: () {
                 _triggerHaptic();
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const VoiceReframeScreen()));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const VoiceReframeScreen()),
+                );
               },
             ),
           ],
@@ -223,7 +257,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Widget _buildMetricsRow({bool isVertical = false}) {
     final streakState = ref.watch(streakProvider);
-    
+
     final metrics = [
       // 1. Streak Tracker (Reads from SQLite Provider)
       Expanded(
@@ -234,7 +268,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           value: streakState.when(
             data: (state) => "${state.currentStreak} Days",
             loading: () => "...",
-            error: (_, __) => "0 Days",
+            error: (error, stack) => "0 Days",
           ),
           onTap: () {
             // Future route to HabitCalendar
@@ -244,7 +278,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
       if (!isVertical) const SizedBox(width: AppTokens.spacing16),
       if (isVertical) const SizedBox(height: AppTokens.spacing16),
-      
+
       // 2. Wallet & Premium Status Tracker (Reads from RevenueCat & Local Wallet)
       Expanded(
         child: StreamBuilder<bool>(
@@ -275,7 +309,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   value: "$balance Credits",
                   onTap: () {
                     _triggerHaptic();
-                    showDialog(context: context, builder: (_) => const WalletTopUpDialog());
+                    showDialog(
+                      context: context,
+                      builder: (_) => const WalletTopUpDialog(),
+                    );
                   },
                 );
               },
@@ -285,9 +322,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
     ];
 
-    return isVertical 
-        ? Column(children: metrics) 
-        : Row(children: metrics);
+    return isVertical ? Column(children: metrics) : Row(children: metrics);
   }
 
   Widget _buildMetricCard({
@@ -307,9 +342,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           decoration: BoxDecoration(
             color: AppTokens.surfaceContainer,
             borderRadius: BorderRadius.circular(AppTokens.radiusMedium),
-            border: Border.all(color: AppTokens.onSurfaceVariant.withValues(alpha: 0.1)),
+            border: Border.all(
+              color: AppTokens.onSurfaceVariant.withValues(alpha: 0.1),
+            ),
             boxShadow: [
-              BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.02),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
           child: Column(
@@ -319,11 +360,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 children: [
                   Icon(icon, color: iconColor, size: 20),
                   const SizedBox(width: AppTokens.spacing8),
-                  Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTokens.onSurfaceVariant)),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTokens.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: AppTokens.spacing12),
-              Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTokens.onSurface)),
+              const SizedBox(height: 12.0),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppTokens.onSurface,
+                ),
+              ),
             ],
           ),
         ),
@@ -335,27 +390,37 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Explore", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTokens.onSurface)),
+        const Text(
+          "Explore",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AppTokens.onSurface,
+          ),
+        ),
         const SizedBox(height: AppTokens.spacing16),
-        
+
         _buildNavTile(
           icon: Icons.grid_view_rounded,
           title: "Tools Library",
           subtitle: "Somatic grounding, sleep mode, and more.",
           onTap: () {
             _triggerHaptic();
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const ToolsLibraryScreen()));
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ToolsLibraryScreen()),
+            );
           },
         ),
-        const SizedBox(height: AppTokens.spacing12),
-        
+        const SizedBox(height: 12.0),
+
         _buildNavTile(
           icon: Icons.history_edu_rounded,
           title: "My Journal",
           subtitle: "Review your past offline AI insights.",
           onTap: () {
             _triggerHaptic();
-            // Assuming JournalTimelineScreen is connected via ToolsLibrary usually, 
+            // Assuming JournalTimelineScreen is connected via ToolsLibrary usually,
             // but providing direct access increases feature discoverability.
           },
         ),
@@ -363,7 +428,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildNavTile({required IconData icon, required String title, required String subtitle, required VoidCallback onTap}) {
+  Widget _buildNavTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
     return Semantics(
       button: true,
       child: InkWell(
@@ -374,13 +444,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           decoration: BoxDecoration(
             color: AppTokens.surfaceContainer,
             borderRadius: BorderRadius.circular(AppTokens.radiusMedium),
-            border: Border.all(color: AppTokens.onSurfaceVariant.withValues(alpha: 0.1)),
+            border: Border.all(
+              color: AppTokens.onSurfaceVariant.withValues(alpha: 0.1),
+            ),
           ),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(AppTokens.spacing12),
-                decoration: BoxDecoration(color: AppTokens.primaryContainer, borderRadius: BorderRadius.circular(AppTokens.radiusSmall)),
+                padding: const EdgeInsets.all(12.0),
+                decoration: BoxDecoration(
+                  color: AppTokens.primaryContainer,
+                  borderRadius: BorderRadius.circular(AppTokens.radiusSmall),
+                ),
                 child: Icon(icon, color: AppTokens.primary, size: 22),
               ),
               const SizedBox(width: AppTokens.spacing16),
@@ -388,13 +463,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTokens.onSurface)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppTokens.onSurface,
+                      ),
+                    ),
                     const SizedBox(height: AppTokens.spacing4),
-                    Text(subtitle, style: const TextStyle(fontSize: 13, color: AppTokens.onSurfaceVariant)),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTokens.onSurfaceVariant,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: AppTokens.onSurfaceVariant),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppTokens.onSurfaceVariant,
+              ),
             ],
           ),
         ),
@@ -422,7 +513,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return const SizedBox(height: AppTokens.spacing32);
       },
       loading: () => const SizedBox(height: AppTokens.spacing32),
-      error: (_, __) => const SizedBox(height: AppTokens.spacing32),
+      error: (error, stack) => const SizedBox(height: AppTokens.spacing32),
     );
   }
 }

@@ -5,8 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
-// Internal Integrations
-import '../../journal/services/local_journal_service.dart';
+// Internal Integrations (Corrected relative path from core/services)
+import '../../features/journal/services/local_journal_service.dart';
 
 /// 🚨 ARCHITECT UPGRADE: Global Provider for Dependency Injection
 /// Establishes clean decoupled testing parameters across the operational architecture.
@@ -139,9 +139,9 @@ class HabitLoopService {
       });
 
       // Track total investments to power the ASO App Store Review prompt logic
-      final prefs = await SharedPreferences.getInstance();
-      int totalInvestments = prefs.getInt('total_investments') ?? 0;
-      await prefs.setInt('total_investments', totalInvestments + 1);
+      final preferences = await SharedPreferences.getInstance();
+      int totalInvestments = preferences.getInt('total_investments') ?? 0;
+      await preferences.setInt('total_investments', totalInvestments + 1);
 
       debugPrint(
         '💾 [Synaptic Investment]: Updated localized bias array for $cognitiveDistortion',
@@ -196,8 +196,8 @@ class HabitLoopService {
   /// Used by AsoReviewService to prevent prompting unengaged users.
   Future<bool> isUserHooked() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      return (prefs.getInt('total_investments') ?? 0) >= 3;
+      final preferences = await SharedPreferences.getInstance();
+      return (preferences.getInt('total_investments') ?? 0) >= 3;
     } catch (e) {
       debugPrint('🚨 [Habit Loop Status Error]: $e');
       return false;
