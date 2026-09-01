@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Internal Integrations
 import '../../journal/services/local_journal_service.dart';
@@ -63,8 +63,8 @@ class HabitLoopService {
   // ============================================================================
   // 2. PHASE 3 & 4: VARIABLE REWARD & INVESTMENT
   // ============================================================================
-  /// Commits user behavioral selection profiles to the local SQLite weight matrix[cite: 17].
-  /// Utilizes strict isolated transaction environments to guard against race conditions[cite: 17].
+  /// Commits user behavioral selection profiles to the local SQLite weight matrix[cite: 10].
+  /// Utilizes strict isolated transaction environments to guard against race conditions[cite: 10].
   Future<void> commitCognitiveInvestment({
     required String cognitiveDistortion,
     required String successfulReframingPattern,
@@ -129,6 +129,11 @@ class HabitLoopService {
           );
         }
       });
+
+      // Track total investments for the review prompt logic
+      final prefs = await SharedPreferences.getInstance();
+      int totalInvestments = prefs.getInt('total_investments') ?? 0;
+      await prefs.setInt('total_investments', totalInvestments + 1);
       
       debugPrint('💾 [Synaptic Investment]: Updated localized bias array for $cognitiveDistortion');
     } catch (e) {
@@ -139,8 +144,8 @@ class HabitLoopService {
   // ============================================================================
   // 3. LOOP CLOSURE: RETRIEVING THE INVESTMENT
   // ============================================================================
-  /// Extracts heavily weighted baseline elements confirmed as positive by the user[cite: 17].
-  /// Injected natively into pipeline request objects to personalize subsequent interaction matrices[cite: 17].
+  /// Extracts heavily weighted baseline elements confirmed as positive by the user[cite: 10].
+  /// Injected natively into pipeline request objects to personalize subsequent interaction matrices[cite: 10].
   Future<List<Map<String, dynamic>>> getTopCognitiveBiases({int limit = 3}) async {
     try {
       final db = await _localDatabase.database;
@@ -151,7 +156,7 @@ class HabitLoopService {
           
       if (tableCheck.isEmpty) return [];
 
-      // Query tracking variables that contain proven therapeutic value (> 0 weight checks)[cite: 17]
+      // Query tracking variables that contain proven therapeutic value (> 0 weight checks)[cite: 10]
       final List<Map<String, dynamic>> topBiases = await db.query(
         'slm_user_biases',
         where: 'synaptic_weight > ?',
@@ -164,6 +169,17 @@ class HabitLoopService {
     } catch (e) {
       debugPrint('🚨 [Bias Retrieval Error]: Failed to extract data vectors - $e');
       return [];
+    }
+  }
+
+  /// Checks if the user is sufficiently "Hooked" (e.g., 3 successful loops).
+  Future<bool> isUserHooked() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return (prefs.getInt('total_investments') ?? 0) >= 3;
+    } catch (e) {
+      debugPrint('🚨 [Habit Loop Error]: $e');
+      return false;
     }
   }
 }

@@ -7,17 +7,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Firebase auto-generated file (Ensure this exists in your lib folder via FlutterFire CLI)
+// Firebase Auto-Generated Options
 import 'firebase_options.dart';
 
-// 🚨 ARCHITECT ROUTING: Safe explicit paths
+// Core Design System & Services
+import 'core/theme/app_tokens.dart';
+import 'core/services/iap_service.dart';
+import 'core/services/local_notification_service.dart';
+
+// Feature Screens & Services
 import 'features/auth/screens/auth_screen.dart';
-// Updated to use the screen containing the new 1-Click Migration feature
 import 'features/auth/screens/onboarding_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
-
-// Services
 import 'features/monetization/services/admob_service.dart';
+import 'features/notifications/services/push_notification_service.dart';
 
 void main() async {
   // 1. Zone Guarding for Production Stability: Catches all uncaught async errors
@@ -25,12 +28,12 @@ void main() async {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
-      // 2. Load Environment Variables (API Keys, RevenueCat Keys)
+      // 2. Load Environment Variables (API Keys Vault)
       try {
         await dotenv.load(fileName: ".env");
         debugPrint('✅ Environment variables loaded successfully.');
       } catch (e) {
-        debugPrint('⚠️ Could not load .env file. Running with local defaults.');
+        debugPrint('⚠️ Could not load .env file. Running with compile-time defaults: $e');
       }
 
       // 3. Initialize Firebase Securely
@@ -40,12 +43,19 @@ void main() async {
         );
         debugPrint('✅ Firebase initialized successfully.');
       } catch (e) {
-        debugPrint(
-          '⚠️ Firebase initialization error (Offline Mode Active): $e',
-        );
+        debugPrint('⚠️ Firebase initialization error (Offline Mode Active): $e');
       }
 
-      // 4. Initialize AdMob Service Failsafes
+      // 4. Initialize In-App Purchases (RevenueCat) with User Context
+      try {
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        await IAPService().init(currentUid);
+        debugPrint('✅ RevenueCat IAP initialized.');
+      } catch (e) {
+        debugPrint('⚠️ IAP initialization error: $e');
+      }
+
+      // 5. Initialize AdMob Service
       try {
         await AdMobService.instance.initialize();
         debugPrint('✅ AdMob SDK initialized.');
@@ -53,7 +63,16 @@ void main() async {
         debugPrint('⚠️ AdMob initialization error (Running offline): $e');
       }
 
-      // 5. Lock Orientation & System UI to prevent layout breaking
+      // 6. Initialize Zero-Cost Local & Remote Notifications
+      try {
+        await LocalNotificationService().init();
+        await PushNotificationService.instance.initialize();
+        debugPrint('✅ Notification services initialized.');
+      } catch (e) {
+        debugPrint('⚠️ Notification initialization warning: $e');
+      }
+
+      // 7. Lock Orientation & System UI to Guarantee Design Tokens
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
@@ -63,42 +82,67 @@ void main() async {
         const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.dark,
-          systemNavigationBarColor: Color(0xFFF7F9F9),
+          systemNavigationBarColor: AppTokens.background,
           systemNavigationBarIconBrightness: Brightness.dark,
         ),
       );
 
-      // 6. Wrap the entire app in Riverpod's ProviderScope for state management
+      // 8. Wrap the entire app in Riverpod's ProviderScope for state management
       runApp(const ProviderScope(child: NeuroCalmApp()));
     },
     (error, stack) {
-      // In production, route this to Crashlytics or Sentry
       debugPrint('🚨 [FATAL ASYNC ERROR]: $error\n$stack');
     },
   );
 }
 
 // ============================================================================
-// GLOBAL THEME DATA
+// GLOBAL THEME CONFIGURATION
 // ============================================================================
-final _neuroCalmTheme = ThemeData(
+final ThemeData _neuroCalmTheme = ThemeData(
   useMaterial3: true,
-  scaffoldBackgroundColor: const Color(0xFFF7F9F9),
+  scaffoldBackgroundColor: AppTokens.background,
   colorScheme: ColorScheme.fromSeed(
-    seedColor: const Color(0xFF2A5C5A),
-    surface: const Color(0xFFF7F9F9),
-    primary: const Color(0xFF2A5C5A),
+    seedColor: AppTokens.primary,
+    surface: AppTokens.surface,
+    primary: AppTokens.primary,
+    error: AppTokens.error,
   ),
-  fontFamily: 'Inter', // Ensure Inter is registered in your pubspec.yaml
+  fontFamily: 'Inter',
   textTheme: const TextTheme(
     displayLarge: TextStyle(
       fontSize: 36,
       fontWeight: FontWeight.w900,
       letterSpacing: -1.0,
-      color: Color(0xFF2A5C5A),
+      color: AppTokens.primary,
     ),
-    bodyLarge: TextStyle(fontSize: 16, height: 1.6, color: Color(0xFF444444)),
-    bodyMedium: TextStyle(fontSize: 14, color: Color(0xFF666666)),
+    headlineMedium: TextStyle(
+      fontSize: 28,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -0.5,
+      color: AppTokens.onSurface,
+    ),
+    titleLarge: TextStyle(
+      fontSize: 20,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -0.3,
+      color: AppTokens.onSurface,
+    ),
+    bodyLarge: TextStyle(
+      fontSize: 16,
+      height: 1.6,
+      color: AppTokens.onSurface,
+    ),
+    bodyMedium: TextStyle(
+      fontSize: 14,
+      height: 1.5,
+      color: AppTokens.onSurfaceVariant,
+    ),
+    labelLarge: TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w700,
+      color: AppTokens.onSurface,
+    ),
   ),
 );
 
@@ -154,11 +198,11 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     );
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _entryController,
-            curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
-          ),
-        );
+      CurvedAnimation(
+        parent: _entryController,
+        curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
+      ),
+    );
 
     // Ambient Pulse Animation
     _pulseController = AnimationController(
@@ -170,8 +214,10 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     );
 
     _entryController.forward().then((_) {
-      _pulseController.repeat(reverse: true);
-      _checkExistingSession(); // Automatically route if user is logged in
+      if (mounted) {
+        _pulseController.repeat(reverse: true);
+        _checkExistingSession(); // Automatically route if user session exists
+      }
     });
   }
 
@@ -182,13 +228,12 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     super.dispose();
   }
 
-  /// Evaluates local SharedPreferences and Firebase Auth to determine the start destination
+  /// Evaluates local storage and Firebase Auth to determine the starting destination
   Future<void> _checkExistingSession() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
 
-      // Safety check: Ensure Firebase is initialized before calling Auth
       User? user;
       try {
         user = FirebaseAuth.instance.currentUser;
@@ -197,7 +242,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       }
 
       // Intentional delay to allow the user to ground themselves visually
-      await Future.delayed(const Duration(milliseconds: 2000));
+      await Future.delayed(const Duration(milliseconds: 1600));
 
       if (!mounted) return;
 
@@ -209,11 +254,10 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             pageBuilder: (_, __, ___) => const DashboardScreen(),
             transitionsBuilder: (_, a, __, c) =>
                 FadeTransition(opacity: a, child: c),
-            transitionDuration: const Duration(milliseconds: 1000),
+            transitionDuration: const Duration(milliseconds: 800),
           ),
         );
       } else {
-        // Show the manual start button if no valid active session exists
         setState(() => _showButton = true);
       }
     } catch (e) {
@@ -236,7 +280,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
-          // Updated to use OnboardingScreen to leverage 1-Click Migration
           pageBuilder: (context, animation, secondaryAnimation) =>
               hasSeenOnboarding ? const AuthScreen() : const OnboardingScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -253,7 +296,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       );
     } catch (e) {
       if (mounted) {
-        // Fallback safely to onboarding on storage error
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const OnboardingScreen()),
@@ -267,6 +309,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: AppTokens.background,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -274,8 +317,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             position: _slideAnimation,
             child: Padding(
               padding: const EdgeInsets.symmetric(
-                horizontal: 32.0,
-                vertical: 40.0,
+                horizontal: AppTokens.spacing32,
+                vertical: AppTokens.spacing40,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -286,42 +329,44 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     child: Container(
                       height: 80,
                       width: 80,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                      decoration: const BoxDecoration(
+                        color: AppTokens.primaryContainer,
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
+                      child: const Icon(
                         Icons.spa_rounded,
                         size: 40,
-                        color: theme.colorScheme.primary,
+                        color: AppTokens.primary,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: AppTokens.spacing40),
                   Text(
                     'Find your\ncenter.',
                     style: theme.textTheme.displayLarge,
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: AppTokens.spacing20),
                   Text(
                     'Your private, offline-ready space for emotional clarity and cognitive behavioral therapy.',
-                    style: theme.textTheme.bodyLarge,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: AppTokens.onSurfaceVariant,
+                    ),
                   ),
                   const Spacer(flex: 2),
                   Center(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.shield_rounded,
                           size: 16,
-                          color: Colors.grey[600],
+                          color: AppTokens.onSurfaceVariant,
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: AppTokens.spacing8),
                         Text(
                           '100% Private & Offline-Ready',
                           style: TextStyle(
-                            color: Colors.grey[700],
+                            color: AppTokens.onSurfaceVariant,
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
@@ -329,24 +374,24 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppTokens.spacing16),
 
-                  // Start Button
+                  // Start CTA Button
                   AnimatedOpacity(
                     opacity: _showButton ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 800),
                     child: SizedBox(
                       width: double.infinity,
-                      height: 60,
+                      height: 56, // Accessible standard touch target
                       child: ElevatedButton(
                         onPressed: (_isRouting || !_showButton)
                             ? null
                             : _handleStartTherapy,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
+                          backgroundColor: AppTokens.primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(AppTokens.radiusMedium),
                           ),
                           elevation: 0,
                         ),
@@ -370,7 +415,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppTokens.spacing16),
                 ],
               ),
             ),

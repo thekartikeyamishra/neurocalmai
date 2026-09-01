@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:math' as math; // 🚨 ARCHITECT FIX: Required for precise 3D Matrix Math
+import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,7 +26,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
   late AnimationController _entryController;
   late AnimationController _cardFlipController;
   late Animation<double> _flipAnimation;
-  
+
   bool _isAdLoading = false;
   bool _rewardUnlocked = false;
   bool _isInvestmentCommitted = false;
@@ -35,14 +36,12 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
   @override
   void initState() {
     super.initState();
-    
-    // 1. Setup Entry Animation
+
     _entryController = AnimationController(
-      vsync: this, 
+      vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    
-    // 2. Setup Hooked Model Card Flip Animation
+
     _cardFlipController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -55,11 +54,10 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
           setState(() => _showBackOfCard = true);
         }
       });
-    
-    // 3. Premium Auto-Bypass Logic
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      
+
       final isPremium = ref.read(subscriptionProvider).isPremium;
       if (isPremium) {
         setState(() => _rewardUnlocked = true);
@@ -85,14 +83,13 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
   // ============================================================================
   void _handleUnlockRequest() {
     if (_isAdLoading) return;
-    
+
     _triggerHaptic(true);
     setState(() {
       _isAdLoading = true;
       _adHandled = false;
     });
 
-    // 🚨 UX FIX: Timeout protection for Ad-Blockers (NextDNS, Pi-Hole) or dead networks
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted && _isAdLoading && !_adHandled) {
         _adHandled = true;
@@ -121,15 +118,14 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     );
   }
 
-  /// Graceful degradation converting network failures into sales opportunities
   void _showAdBlockerFailsafe() {
     if (!mounted) return;
-    
+
     final theme = Theme.of(context);
-    
+
     showDialog(
       context: context,
-      barrierDismissible: false, // Force interaction
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         backgroundColor: theme.colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -138,13 +134,13 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             Icon(Icons.wifi_off_rounded, color: theme.colorScheme.primary),
             const SizedBox(width: 12),
             Text(
-              'Connection Blocked', 
+              'Connection Blocked',
               style: TextStyle(
-                fontSize: 18, 
-                fontWeight: FontWeight.bold, 
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
                 letterSpacing: -0.5,
                 color: theme.textTheme.bodyLarge?.color,
-              )
+              ),
             ),
           ],
         ),
@@ -159,7 +155,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
           ),
           ElevatedButton(
             onPressed: () {
-              Navigator.pop(context); 
+              Navigator.pop(context);
               Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumPaywallScreen()));
             },
             style: ElevatedButton.styleFrom(
@@ -196,7 +192,6 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     if (_isInvestmentCommitted) return;
     setState(() => _isInvestmentCommitted = true);
 
-    // Write directly to the SQLite neural bias matrix via Riverpod
     await ref.read(habitLoopServiceProvider).commitCognitiveInvestment(
       cognitiveDistortion: widget.slmFeatures['cognitive_distortion']?.toString() ?? 'Catastrophizing',
       successfulReframingPattern: widget.slmFeatures['reframing_action']?.toString() ?? 'Cognitive Re-centering',
@@ -212,9 +207,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  isPositive ? 'Neural pathway reinforced.' : 'Bias registered for recalibration.', 
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.white)
-                )
+                  isPositive ? 'Neural pathway reinforced.' : 'Bias registered for recalibration.',
+                  style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
+                ),
               ),
             ],
           ),
@@ -237,7 +232,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
       backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
         title: Text(
-          _rewardUnlocked ? 'Neural Reframe' : 'Deep Insights', 
+          _rewardUnlocked ? 'Neural Reframe' : 'Deep Insights',
           style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.5),
         ),
         centerTitle: true,
@@ -267,8 +262,8 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
               child: ScaleTransition(scale: Tween<double>(begin: 0.95, end: 1.0).animate(animation), child: child),
             );
           },
-          child: _rewardUnlocked 
-              ? _buildUnlockedInsights(theme) 
+          child: _rewardUnlocked
+              ? _buildUnlockedInsights(theme)
               : _buildLockedView(theme, isPremium),
         ),
       ),
@@ -281,42 +276,81 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
   Widget _buildLockedView(ThemeData theme, bool isPremium) {
     return Padding(
       key: const ValueKey('locked_view'),
-      padding: const EdgeInsets.symmetric(horizontal: 32.0),
+      padding: const EdgeInsets.symmetric(horizontal: 28.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: theme.colorScheme.primary.withValues(alpha: 0.05),
-              boxShadow: [
-                BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.1), blurRadius: 50, spreadRadius: 5),
-              ],
-            ),
-            child: Icon(Icons.lock_person_rounded, size: 80, color: theme.colorScheme.primary),
+
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: 0.6,
+                child: _buildMockFrontCard(theme),
+              ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(32),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
+                  child: Container(
+                    height: 320,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(32),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 1.5),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                                blurRadius: 30,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                          child: Icon(Icons.lock_person_rounded, size: 48, color: theme.colorScheme.primary),
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Pattern Analysis Ready',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                        ),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                          child: Text(
+                            'Subconscious loops identified. Unlock the secure report to begin your reframe.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey[700], fontSize: 14, height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 40),
-          const Text(
-            'Pattern Analysis Ready',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'We’ve identified subconscious patterns in your last session. Unlock the secure report to begin reframing.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[600], fontSize: 16, height: 1.5),
-          ),
+
           const Spacer(),
-          
+
           SizedBox(
             width: double.infinity,
             height: 60,
             child: ElevatedButton.icon(
               onPressed: _isAdLoading ? null : _handleUnlockRequest,
-              icon: _isAdLoading 
+              icon: _isAdLoading
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.play_circle_fill_rounded),
               label: Text(
@@ -339,12 +373,35 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             },
             icon: const Icon(Icons.auto_awesome_rounded, size: 18, color: Color(0xFF38BDF8)),
             label: Text(
-              'Or Upgrade to Premium for Instant Access', 
+              'Or Upgrade to Premium for Instant Access',
               style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w700, fontSize: 14),
             ),
             style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16)),
           ),
           const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMockFrontCard(ThemeData theme) {
+    return Container(
+      height: 320,
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(32),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.psychology_rounded, size: 56, color: Color(0xFF38BDF8)),
+          const SizedBox(height: 24),
+          Container(height: 12, width: 120, color: Colors.white24),
+          const SizedBox(height: 16),
+          Container(height: 24, width: 200, color: Colors.white),
+          const Spacer(),
+          Container(height: 12, width: 150, color: Colors.white24),
         ],
       ),
     );
@@ -367,17 +424,16 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
           ),
           const SizedBox(height: 24),
-          
+
           GestureDetector(
             onTap: _triggerFlippingMechanic,
             child: AnimatedBuilder(
               animation: _flipAnimation,
               builder: (context, child) {
-                // 🚨 MATH FIX: Safely use dart:math to execute 3D Flip
                 final double transformValue = _flipAnimation.value * math.pi;
                 return Transform(
                   transform: Matrix4.identity()
-                    ..setEntry(3, 2, 0.001) // 3D perspective depth
+                    ..setEntry(3, 2, 0.001)
                     ..rotateY(transformValue),
                   alignment: Alignment.center,
                   child: _showBackOfCard ? _buildBackCard(theme) : _buildFrontCard(theme),
@@ -385,10 +441,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
               },
             ),
           ),
-          
+
           const SizedBox(height: 40),
-          
-          // Investment UI (Only visible when card is flipped)
+
           AnimatedOpacity(
             opacity: _showBackOfCard ? 1.0 : 0.0,
             duration: const Duration(milliseconds: 400),
@@ -434,7 +489,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
         color: const Color(0xFF0F172A),
         borderRadius: BorderRadius.circular(32),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF38BDF8).withValues(alpha: 0.15), blurRadius: 25, spreadRadius: 2)
+          BoxShadow(color: const Color(0xFF38BDF8).withValues(alpha: 0.15), blurRadius: 25, spreadRadius: 2),
         ],
       ),
       child: Column(
@@ -460,7 +515,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
               SizedBox(width: 8),
               Text('Tap Card to Reveal Reframe', style: TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold)),
             ],
-          )
+          ),
         ],
       ),
     );
@@ -468,8 +523,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
 
   Widget _buildBackCard(ThemeData theme) {
     return Transform(
-      // 🚨 MATH FIX: Prevents the text from being backwards/mirrored when flipped
-      transform: Matrix4.identity()..rotateY(math.pi), 
+      transform: Matrix4.identity()..rotateY(math.pi),
       alignment: Alignment.center,
       child: Container(
         height: 320,
@@ -479,7 +533,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
           borderRadius: BorderRadius.circular(32),
           border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.1), width: 2),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 20, offset: const Offset(0, 10))
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 20, offset: const Offset(0, 10)),
           ],
         ),
         child: Column(
@@ -492,9 +546,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             ),
             const SizedBox(height: 20),
             const Text(
-              'Neurological Realignment Pathway', 
+              'Neurological Realignment Pathway',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)
+              style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             Text(
@@ -537,7 +591,6 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
 // ============================================================================
 // HAPTICS UTILITY
 // ============================================================================
-/// Custom specialized haptics for psychological reward markers
 class InsightHaptics {
   static Future<void> successOverridden() async {
     await HapticFeedback.mediumImpact();

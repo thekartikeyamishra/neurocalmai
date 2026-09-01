@@ -7,41 +7,39 @@ import '../../settings/providers/language_provider.dart';
 
 class GeminiService {
   static final GeminiService instance = GeminiService._internal();
-  GenerativeModel? _model;
+  
+  static const int _maxHistoryTurns = 4;
+  
+  // 🚨 COST OPTIMIZATION: Max input character length (~150 words) to prevent token stuffing
+  static const int _maxInputLength = 800; 
 
-  // 🚨 COST OPTIMIZER: Maximum previous messages to send. 
-  // 4 turns (2 user, 2 AI) is enough for CBT context without burning tokens.
-  static const int _maxHistoryTurns = 4; 
+  GeminiService._internal();
 
-  GeminiService._internal() {
-    _initModel();
-  }
-
-  void _initModel() {
+  GenerativeModel _getModel(String dialect) {
     final apiKey = dotenv.env['GEMINI_API_KEY'];
     if (apiKey == null || apiKey.isEmpty) {
-      debugPrint('🚨 CRITICAL: GEMINI_API_KEY not found in .env');
-      return;
+      throw Exception('CRITICAL: GEMINI_API_KEY not found in .env');
     }
-
-    // 🚨 COST OPTIMIZER: Use flash instead of pro/latest. 
-    // gemini-1.5-flash is extremely cheap and incredibly fast for JSON tasks.
-    _model = GenerativeModel(
-      model: 'gemini-1.5-flash', 
+    return GenerativeModel(
+      model: 'gemini-2.5-flash',
       apiKey: apiKey,
+      systemInstruction: Content.system(_getSystemPrompt(dialect)),
       generationConfig: GenerationConfig(
-        temperature: 0.4, // Lowered slightly for more concise, less rambling output (saves output tokens)
-        maxOutputTokens: 150, // Reduced from 250: forces the AI to be brief and saves money
-        responseMimeType: 'application/json', // Forces strict JSON output
+        temperature: 0.1,
+        maxOutputTokens: 600,
+        responseMimeType: 'application/json',
       ),
     );
   }
 
   String _getSystemPrompt(String dialect) {
-    // 🚨 COST OPTIMIZER: Minimized system prompt. Every word here costs tokens on every single turn.
     return '''
     You are NeuroCalm, a CBT assistant.
     Rules: Validate emotions, be very brief, no medical diagnoses. Reply in $dialect. JSON keys must be English.
+    
+    CRITICAL INSTRUCTION: You must output ONLY raw, valid JSON.
+    DO NOT output markdown blocks (like ```json).
+    
     {
       "reply": "Empathetic localized response",
       "slm_features": {
@@ -52,37 +50,34 @@ class GeminiService {
     }''';
   }
 
-  /// Processes Text Chat directly via Gemini
   Future<Map<String, dynamic>> generateTextReply(
-    String userMessage, 
-    List<Map<String, String>> history, 
+    String userMessage,
+    List<Map<String, String>> history,
     AppLanguage language
   ) async {
-    if (_model == null) throw Exception("Gemini not initialized.");
-
-    // 🚨 ZERO-COST INTERCEPTOR: Do not call LLM for basic pleasantries or 1-word agreements
+    // ZERO-COST INTERCEPTOR
     final normalizedMsg = userMessage.trim().toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
-    
-    if (normalizedMsg == 'hi' || normalizedMsg == 'hello' || normalizedMsg == 'hey') {
+    if (normalizedMsg == 'hi' || normalizedMsg == 'hello') {
       return _getFreeFallbackReply("Hello. How are you feeling right now?");
     }
-    if (normalizedMsg == 'ok' || normalizedMsg == 'okay' || normalizedMsg == 'thanks' || normalizedMsg == 'thank you') {
-      return _getFreeFallbackReply("I'm here whenever you're ready to share more.");
-    }
 
-    // 🚨 COST OPTIMIZER: Sliding Window. Only take the last N messages to prevent exponential token costs.
-    final recentHistory = history.length > _maxHistoryTurns 
-        ? history.sublist(history.length - _maxHistoryTurns) 
+    // 🚨 TOKEN BUDGETING: Hard clip the input string before generation
+    final safeMessage = userMessage.length > _maxInputLength 
+        ? '${userMessage.substring(0, _maxInputLength)}...' 
+        : userMessage;
+
+    final recentHistory = history.length > _maxHistoryTurns
+        ? history.sublist(history.length - _maxHistoryTurns)
         : history;
 
     final prompt = [
-      Content.system(_getSystemPrompt(language.displayName)),
       ...recentHistory.map((h) => Content(h['role'] == 'user' ? 'user' : 'model', [TextPart(h['content'] ?? '')])),
-      Content.text(userMessage)
+      Content.text(safeMessage)
     ];
 
     try {
-      final response = await _model!.generateContent(prompt);
+      final model = _getModel(language.displayName);
+      final response = await model.generateContent(prompt);
       return _parseResponse(response.text);
     } catch (e) {
       debugPrint('[Gemini Text Error]: $e');
@@ -90,23 +85,21 @@ class GeminiService {
     }
   }
 
-  /// Processes Audio Files directly via Gemini 1.5 Flash
   Future<Map<String, dynamic>> generateAudioReply(String audioFilePath, AppLanguage language) async {
-    if (_model == null) throw Exception("Gemini not initialized.");
-
     try {
       final audioFile = File(audioFilePath);
+      if (!await audioFile.exists()) throw Exception("Audio file not found.");
+
       final audioBytes = await audioFile.readAsBytes();
-      
       final prompt = [
-        Content.system(_getSystemPrompt(language.displayName)),
         Content.multi([
           DataPart('audio/mp4', audioBytes),
-          TextPart("Transcribe the audio and provide the CBT response."),
+          TextPart("Transcribe the audio and provide the CBT response. Output ONLY valid JSON."),
         ])
       ];
 
-      final response = await _model!.generateContent(prompt);
+      final model = _getModel(language.displayName);
+      final response = await model.generateContent(prompt);
       return _parseResponse(response.text);
     } catch (e) {
       debugPrint('[Gemini Audio Error]: $e');
@@ -115,25 +108,24 @@ class GeminiService {
   }
 
   Map<String, dynamic> _parseResponse(String? text) {
-    if (text == null) throw Exception("Empty response from AI");
-    
+    if (text == null) throw Exception("Empty response");
     try {
-      // Clean potential markdown blocks hallucinaton
-      final cleanText = text.replaceAll('```json', '').replaceAll('```', '').trim();
-      return jsonDecode(cleanText);
+      String cleanText = text.replaceAll('```json', '').replaceAll('```', '').trim();
+      final RegExp jsonRegex = RegExp(r'\{[\s\S]*\}');
+      final match = jsonRegex.firstMatch(cleanText);
+      if (match != null) return jsonDecode(match.group(0)!);
+      throw const FormatException("No JSON structure found.");
     } catch (e) {
-      debugPrint('[Gemini Parse Error]: $e\nRaw Output: $text');
       return _getFreeFallbackReply("I am here for you. Please tell me more.");
     }
   }
 
-  // Local helper for zero-cost routing and error states
   Map<String, dynamic> _getFreeFallbackReply(String replyText) {
     return {
       "reply": replyText,
       "slm_features": {
-        "detected_emotion": "neutral", 
-        "cognitive_distortion": "none", 
+        "detected_emotion": "neutral",
+        "cognitive_distortion": "none",
         "urgency_level": "low"
       }
     };

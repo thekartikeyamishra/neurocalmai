@@ -1,27 +1,32 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_screen.dart';
 
 // ============================================================================
-// DATA MODEL: Onboarding Page Content
+// DATA MODELS: Gamified Onboarding
 // ============================================================================
-class OnboardingContent {
+class OnboardingStep {
   final String title;
   final String description;
-  final IconData icon;
-  final Color highlightColor;
+  final String outcomeFocus;
+  final List<String> options;
+  final IconData heroIcon;
+  final Color themeColor;
 
-  OnboardingContent({
+  OnboardingStep({
     required this.title,
     required this.description,
-    required this.icon,
-    required this.highlightColor,
+    required this.outcomeFocus,
+    required this.options,
+    required this.heroIcon,
+    required this.themeColor,
   });
 }
 
 // ============================================================================
-// UI SCREEN: Smooth, Haptic-Rich Onboarding with 1-Click Migration
+// UI SCREEN: Progressive, Haptic-Rich Gamified Onboarding
 // ============================================================================
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -31,37 +36,52 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late PageController _pageController;
   late AnimationController _iconAnimationController;
+  late AnimationController _celebrationController;
   late Animation<double> _iconFloatAnimation;
+  late Animation<double> _scaleAnimation;
 
   int _currentPage = 0;
+  final Map<int, Set<String>> _selectedOptions = {};
+  bool _isAnalyzing = false;
 
-  // Core Value Propositions matching the architecture
-  final List<OnboardingContent> _pages = [
-    OnboardingContent(
-      title: "Your Private AI Guide",
-      description:
-          "Experience fully sandboxed, client-side emotional processing. Your thoughts stay entirely on your device.",
-      icon: Icons.security_rounded,
-      highlightColor: const Color(
-        0xFF6366F1,
-      ), // FIXED: Proper Hex Code for Indigo
+  // Selling the outcome and gathering progressive data
+  final List<OnboardingStep> _steps = [
+    OnboardingStep(
+      title: "What brings you here?",
+      description: "Select the areas you want to transform.",
+      outcomeFocus: "We've helped users reclaim 100,000+ hours of peace.",
+      options: [
+        "Reduce Daily Anxiety",
+        "Improve Deep Sleep",
+        "Stop Procrastinating",
+        "Navigate Conflicts",
+      ],
+      heroIcon: Icons.psychology_rounded,
+      themeColor: const Color(0xFF6366F1), // Indigo
     ),
-    OnboardingContent(
-      title: "Somatic Tracking",
-      description:
-          "Correlate your physical biometric rhythms with emotional trends over time using predictive local insights.",
-      icon: Icons.favorite_rounded,
-      highlightColor: const Color(0xFFEC4899), // Pink
+    OnboardingStep(
+      title: "When do you need support?",
+      description: "We'll optimize your tools for these critical moments.",
+      outcomeFocus: "Proactive care prevents cognitive overload.",
+      options: [
+        "First thing in the morning",
+        "During the workday",
+        "Before falling asleep",
+        "In random social situations",
+      ],
+      heroIcon: Icons.schedule_rounded,
+      themeColor: const Color(0xFFEC4899), // Pink
     ),
-    OnboardingContent(
-      title: "Local Chapters",
-      description:
-          "Bridge the gap between digital wellness and genuine offline human connection in your local community.",
-      icon: Icons.leak_add_rounded,
-      highlightColor: const Color(0xFF10B981), // Emerald
+    OnboardingStep(
+      title: "Calibrating Your Engine",
+      description: "Building your offline-ready, personalized neural pathway.",
+      outcomeFocus: "Your mental sanctuary is almost ready.",
+      options: [],
+      heroIcon: Icons.auto_awesome_rounded,
+      themeColor: const Color(0xFF10B981), // Emerald
     ),
   ];
 
@@ -70,6 +90,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     super.initState();
     _pageController = PageController();
 
+    // Floating Hero Animation
     _iconAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
@@ -78,8 +99,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     _iconFloatAnimation = Tween<double>(begin: 0.0, end: 12.0).animate(
       CurvedAnimation(
         parent: _iconAnimationController,
-        curve: Curves.easeInOut,
+        curve: Curves.easeInOutSine,
       ),
+    );
+
+    // Celebration/Achievement Animation
+    _celebrationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _celebrationController, curve: Curves.easeOutBack),
     );
   }
 
@@ -87,19 +117,67 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   void dispose() {
     _pageController.dispose();
     _iconAnimationController.dispose();
+    _celebrationController.dispose();
     super.dispose();
   }
 
   Future<void> _finishOnboarding() async {
-    HapticFeedback.mediumImpact();
+    HapticFeedback.heavyImpact();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('onboarding_complete', true);
+    await prefs.setBool('has_seen_onboarding', true); // Matches main.dart check
 
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const AuthScreen()),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const AuthScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+        transitionDuration: const Duration(milliseconds: 600),
+      ),
     );
+  }
+
+  void _handleOptionToggle(int pageIndex, String option) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selectedOptions.putIfAbsent(pageIndex, () => {});
+      if (_selectedOptions[pageIndex]!.contains(option)) {
+        _selectedOptions[pageIndex]!.remove(option);
+      } else {
+        _selectedOptions[pageIndex]!.add(option);
+      }
+    });
+  }
+
+  Future<void> _handleNext() async {
+    final isLastInteractionPage = _currentPage == _steps.length - 2;
+    
+    if (isLastInteractionPage) {
+      // Transition to the "Calibrating" achievement screen
+      HapticFeedback.mediumImpact();
+      setState(() => _isAnalyzing = true);
+      
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeOutCubic,
+      );
+
+      // Simulate AI engine calibration for gamified investment
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (mounted) {
+        setState(() => _isAnalyzing = false);
+        _celebrationController.forward();
+        HapticFeedback.heavyImpact(); // Celebration haptic
+      }
+    } else {
+      HapticFeedback.lightImpact();
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   void _showMigrationBottomSheet() {
@@ -109,6 +187,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     showModalBottomSheet(
       context: context,
       backgroundColor: theme.colorScheme.surface,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -135,7 +214,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               Text(
                 "Zero-Loss Secure Migration",
                 style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(height: 8),
@@ -143,36 +223,35 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 "Import your existing journals, metrics, and behavioral history instantly. We parse text files securely on-device without telemetry exposure.",
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
-                  height: 1.4,
+                  height: 1.5,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
-                height: 52,
+                height: 56,
                 child: ElevatedButton.icon(
                   onPressed: () {
                     HapticFeedback.mediumImpact();
                     Navigator.pop(context);
-                    // Routes to internal pipeline storage for background importing
                     _finishOnboarding();
                   },
                   icon: const Icon(Icons.file_open_rounded),
                   label: const Text(
                     "Select Export File (.json, .txt)",
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: theme.colorScheme.onPrimary,
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     elevation: 0,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 height: 48,
@@ -187,6 +266,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
             ],
           ),
         );
@@ -197,7 +277,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isLastPage = _currentPage == _pages.length - 1;
+    final isFinalPage = _currentPage == _steps.length - 1;
+    final currentOptions = _selectedOptions[_currentPage] ?? {};
+    final canProceed = isFinalPage || currentOptions.isNotEmpty;
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
@@ -206,18 +288,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           children: [
             // Top Utility Actions
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 8.0,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   AnimatedOpacity(
-                    opacity: isLastPage ? 0.0 : 1.0,
+                    opacity: isFinalPage ? 0.0 : 1.0,
                     duration: const Duration(milliseconds: 200),
                     child: TextButton(
-                      onPressed: isLastPage ? null : _finishOnboarding,
+                      onPressed: isFinalPage ? null : _finishOnboarding,
                       child: Text(
                         "Skip",
                         style: TextStyle(
@@ -231,122 +310,257 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               ),
             ),
 
-            // Onboarding Swipe Engine
+            // Onboarding Progression Engine
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
-                itemCount: _pages.length,
+                physics: const NeverScrollableScrollPhysics(), // Force guided gamified progression
+                itemCount: _steps.length,
                 onPageChanged: (index) {
-                  HapticFeedback.selectionClick();
-                  setState(() {
-                    _currentPage = index;
-                  });
+                  setState(() => _currentPage = index);
                 },
                 itemBuilder: (context, index) {
-                  final page = _pages[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment
-                          .center, // FIXED: Changed 'maincenter' to 'mainAxisAlignment'
-                      children: [
-                        // Floating Hero Icon Integration
-                        AnimatedBuilder(
-                          animation: _iconFloatAnimation,
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, -_iconFloatAnimation.value),
-                              child: child,
-                            );
-                          },
-                          child: Container(
-                            height: 160,
-                            width: 160,
-                            decoration: BoxDecoration(
-                              color: page.highlightColor.withValues(alpha: 0.1),
-                              shape: BoxShape.circle,
+                  final step = _steps[index];
+                  
+                  // UX FIX: Implementing LayoutBuilder and SingleChildScrollView prevents bottom 
+                  // overflow clipping on small screens (like SM A54) when forms get too tall.
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 16.0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Floating Hero Icon or Processing Spinner
+                                Center(
+                                  child: AnimatedBuilder(
+                                    animation: _iconFloatAnimation,
+                                    builder: (context, child) {
+                                      return Transform.translate(
+                                        offset: Offset(0, -_iconFloatAnimation.value),
+                                        child: child,
+                                      );
+                                    },
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 400),
+                                      child: _isAnalyzing && isFinalPage
+                                          ? Container(
+                                              height: 120, // Optimized sizing
+                                              width: 120,
+                                              decoration: BoxDecoration(
+                                                color: step.themeColor.withValues(alpha: 0.05),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(32.0),
+                                                child: CircularProgressIndicator(
+                                                  color: step.themeColor,
+                                                  strokeWidth: 3,
+                                                ),
+                                              ),
+                                            )
+                                          : ScaleTransition(
+                                              scale: isFinalPage ? _scaleAnimation : const AlwaysStoppedAnimation(1.0),
+                                              child: Container(
+                                                height: 120, // Optimized sizing
+                                                width: 120,
+                                                decoration: BoxDecoration(
+                                                  color: step.themeColor.withValues(alpha: 0.1),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: Icon(
+                                                  step.heroIcon,
+                                                  size: 56,
+                                                  color: step.themeColor,
+                                                ),
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 32),
+                                
+                                // Copy emphasizing outcome
+                                Text(
+                                  _isAnalyzing && isFinalPage ? "Analyzing Profile..." : step.title,
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.headlineMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    color: theme.colorScheme.onSurface,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _isAnalyzing && isFinalPage ? "Compiling local data..." : step.description,
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                    height: 1.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 32),
+
+                                // Gamified Selection List
+                                if (step.options.isNotEmpty)
+                                  ...step.options.map((option) {
+                                    final isSelected = currentOptions.contains(option);
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 12.0),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 250),
+                                        curve: Curves.easeOutCubic,
+                                        decoration: BoxDecoration(
+                                          color: isSelected 
+                                              ? step.themeColor.withValues(alpha: 0.1) 
+                                              : theme.colorScheme.surface,
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(
+                                            color: isSelected 
+                                                ? step.themeColor 
+                                                : theme.colorScheme.outline.withValues(alpha: 0.3),
+                                            width: isSelected ? 2 : 1,
+                                          ),
+                                          boxShadow: isSelected ? [
+                                            BoxShadow(
+                                              color: step.themeColor.withValues(alpha: 0.05),
+                                              blurRadius: 8,
+                                              offset: const Offset(0, 4),
+                                            )
+                                          ] : [],
+                                        ),
+                                        child: Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.circular(16),
+                                            onTap: () => _handleOptionToggle(index, option),
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                                              child: Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      option,
+                                                      style: TextStyle(
+                                                        fontSize: 16,
+                                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                                        color: isSelected ? step.themeColor : theme.colorScheme.onSurface,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  if (isSelected)
+                                                    Icon(Icons.check_circle_rounded, color: step.themeColor, size: 22),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                  
+                                if (isFinalPage && !_isAnalyzing)
+                                  AnimatedOpacity(
+                                    opacity: _scaleAnimation.isCompleted ? 1.0 : 0.0,
+                                    duration: const Duration(milliseconds: 400),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.primary.withValues(alpha: 0.05),
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.verified_user_rounded, color: theme.colorScheme.primary, size: 24),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              "Matrix configured successfully. Ready for private initialization.",
+                                              style: TextStyle(
+                                                color: theme.colorScheme.primary,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                              ],
                             ),
-                            child: Icon(
-                              page.icon,
-                              size: 72,
-                              color: page.highlightColor,
-                            ),
                           ),
                         ),
-                        const SizedBox(height: 48),
-                        Text(
-                          page.title,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: theme.colorScheme.onSurface,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          page.description,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            height: 1.5,
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    },
                   );
                 },
               ),
             ),
 
-            // Custom Dot Matrix Progress & Footer Navigation Actions
+            // Progress Indicators & Action Footer
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24.0,
-                vertical: 24.0,
-              ),
+              padding: const EdgeInsets.fromLTRB(28.0, 16.0, 28.0, 24.0),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Social Proof / Outcome Reiteration
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: Text(
+                      _steps[_currentPage].outcomeFocus,
+                      key: ValueKey<int>(_currentPage),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey[500],
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Gamified Progress Ring
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(
-                      _pages.length,
+                      _steps.length,
                       (index) => AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
                         margin: const EdgeInsets.symmetric(horizontal: 4.0),
-                        height: 8,
-                        width: _currentPage == index ? 24 : 8,
+                        height: 6,
+                        width: _currentPage == index ? 32 : 12,
                         decoration: BoxDecoration(
-                          color: _currentPage == index
+                          color: _currentPage >= index
                               ? theme.colorScheme.primary
-                              : theme.colorScheme.primary.withValues(
-                                  alpha: 0.2,
-                                ),
+                              : theme.colorScheme.primary.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 32),
+
+                  // Main Primary Action
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
-                      onPressed: () {
-                        if (isLastPage) {
-                          _finishOnboarding();
-                        } else {
-                          HapticFeedback.lightImpact();
-                          _pageController.nextPage(
-                            duration: const Duration(milliseconds: 500),
-                            curve: Curves.easeOutCubic,
-                          );
-                        }
-                      },
+                      onPressed: canProceed && !_isAnalyzing 
+                          ? (isFinalPage ? _finishOnboarding : _handleNext)
+                          : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: theme.colorScheme.primary,
                         foregroundColor: Colors.white,
+                        disabledBackgroundColor: theme.colorScheme.primary.withValues(alpha: 0.3),
+                        disabledForegroundColor: Colors.white70,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
@@ -355,8 +569,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 300),
                         child: Text(
-                          isLastPage ? 'Get Started' : 'Next',
-                          key: ValueKey<bool>(isLastPage),
+                          isFinalPage ? 'Create Anonymous Account' : 'Continue',
+                          key: ValueKey<bool>(isFinalPage),
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
@@ -367,19 +581,16 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     ),
                   ),
 
-                  // 1-Click Migration Secondary Button (Psychological Hook)
+                  // 1-Click Migration Hook
                   AnimatedSize(
                     duration: const Duration(milliseconds: 400),
-                    curve: Curves.easeInOut,
-                    child: isLastPage
+                    curve: Curves.easeOutCubic,
+                    child: isFinalPage && !_isAnalyzing
                         ? Padding(
                             padding: const EdgeInsets.only(top: 16.0),
                             child: TextButton.icon(
                               onPressed: _showMigrationBottomSheet,
-                              icon: const Icon(
-                                Icons.download_rounded,
-                                size: 18,
-                              ),
+                              icon: const Icon(Icons.download_rounded, size: 18),
                               label: const Text(
                                 "Moving from another app? Migrate data",
                                 style: TextStyle(fontWeight: FontWeight.w600),

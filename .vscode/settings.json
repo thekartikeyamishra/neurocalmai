@@ -1,4 +1,7 @@
 {
   "cmake.sourceDirectory": "G:/NeuroCalm-AI/mobile/linux",
-  "java.configuration.updateBuildConfiguration": "interactive"
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "eslint.workingDirectories": [
+    "./mobile/functions"
+  ]
 }

@@ -1,25 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-// Providers
-import '../../tracking/providers/streak_provider.dart';
+// Core Architecture & Design System
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/utils/adaptive_layout.dart';
+import '../../../core/widgets/neuro_button.dart';
+import '../../../core/widgets/stateful_view.dart';
 
 // Services
-import '../../growth/services/waitlist_service.dart';
+import '../../../core/services/iap_service.dart';
+import '../../../core/services/wallet_service.dart';
 
-// Widgets
-import '../widgets/community_nudge_card.dart';
-
-// Screens
+// Features & Providers
+import '../../tracking/providers/streak_provider.dart';
 import '../../settings/screens/user_profile_screen.dart';
-import '../../therapy/screens/voice_therapy_screen.dart';
-import '../../emotion/screens/emotion_scan_screen.dart';
-import '../../therapy/screens/breathing_screen.dart';
-import '../../journal/screens/journal_timeline_screen.dart';
 import '../../therapy/screens/therapy_home_screen.dart';
+import '../../voice_therapy/presentation/voice_reframe_screen.dart';
+import '../../wallet/presentation/wallet_topup_dialog.dart';
 
+// Monetization
+import '../../monetization/widgets/smart_banner_card.dart';
+import '../../monetization/geo_router.dart';
+
+/// The 10/10 Adaptive Dashboard Screen.
+/// This screen acts as the central hub of the product architecture. It actively 
+/// listens to the design tokens, scales dynamically based on the window size 
+/// (phone vs. tablet), securely displays the user's local streak data, and 
+/// seamlessly routes them to the new AI tools and RevenueCat paywalls.
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -27,83 +35,22 @@ class DashboardScreen extends ConsumerStatefulWidget {
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTickerProviderStateMixin {
-  late AnimationController _entryController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
-
-  // Growth & Community Nudge State
-  bool _showWaitlistNudge = false;
-  int _localWaitlistCount = 0;
-  final String _userCity = "Prayagraj"; // Defaults to operations hub
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  final IAPService _iapService = IAPService();
+  final WalletService _walletService = WalletService();
 
   @override
   void initState() {
     super.initState();
-    
-    // Therapeutic staggered entry animations
-    _entryController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _entryController, curve: Curves.easeOutCubic),
-    );
-
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entryController, curve: Curves.easeOutCubic),
-    );
-
-    _entryController.forward();
-
-    // Silently check if we should display the community growth nudge
-    _checkWaitlistStatus();
+    // Pre-fetch local SQLite streak data on boot to ensure zero-latency UI
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(streakProvider.notifier).refresh();
+    });
   }
 
-  @override
-  void dispose() {
-    _entryController.dispose();
-    super.dispose();
-  }
+  void _triggerHaptic() => HapticFeedback.lightImpact();
 
-  Future<void> _checkWaitlistStatus() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final hasDismissed = prefs.getBool('waitlist_nudge_dismissed') ?? false;
-      
-      // If user dismissed it, protect retention and don't bother them again
-      if (hasDismissed) return;
-
-      final waitlistService = WaitlistService();
-      final isOnList = await waitlistService.isUserOnWaitlist();
-
-      if (!isOnList) {
-        final count = await waitlistService.getWaitlistCountForCity(_userCity);
-        if (mounted) {
-          setState(() {
-            _localWaitlistCount = count;
-            _showWaitlistNudge = true;
-          });
-        }
-      }
-    } catch (e) {
-      // Fail silently to prevent dashboard from breaking if network/auth drops
-      debugPrint('⚠️ [Dashboard]: Silent Error fetching waitlist status: $e');
-    }
-  }
-
-  void _handleNudgeDismissal() async {
-    setState(() => _showWaitlistNudge = false);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('waitlist_nudge_dismissed', true);
-    } catch (e) {
-      debugPrint('⚠️ [Dashboard]: Failed to save dismissal preference');
-    }
-  }
-
-  String _getDynamicGreeting() {
+  String _getTimeBasedGreeting() {
     final hour = DateTime.now().hour;
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
@@ -112,415 +59,370 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
 
   @override
   Widget build(BuildContext context) {
-    // STATE FIX: Watching the AsyncValue securely from Riverpod
-    final asyncStreak = ref.watch(streakProvider);
-    final theme = Theme.of(context);
-
+    // 10/10 Adaptive System: Determines spacing based on physical window size
+    final horizontalPadding = AdaptiveLayout.getHorizontalPadding(context);
+    final sizeClass = AdaptiveLayout.getSizeClass(context);
+    
+    // We wrap the entire dashboard in our StatefulView. 
+    // If the database is locked or loading, it handles the skeleton safely.
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          _buildSliverAppBar(context, theme),
-          SliverToBoxAdapter(
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Dynamic Greeting based on device time
-                      Text(
-                        _getDynamicGreeting(),
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Streak Card handling AsyncValue gracefully
-                      _buildStreakCard(asyncStreak, theme),
-
-                      // Seamlessly integrated Community Nudge
-                      if (_showWaitlistNudge) ...[
-                        const SizedBox(height: 24),
-                        CommunityNudgeCard(
-                          userCity: _userCity,
-                          localWaitlistCount: _localWaitlistCount,
-                          onDismiss: _handleNudgeDismissal,
-                        ),
+      backgroundColor: AppTokens.background,
+      body: SafeArea(
+        child: StatefulView(
+          state: ViewState.content,
+          content: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: AppTokens.spacing24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(),
+                  const SizedBox(height: AppTokens.spacing32),
+                  
+                  _buildHeroCard(),
+                  const SizedBox(height: AppTokens.spacing24),
+                  
+                  // Adaptive Layout: Row on Tablets/Desktop, Column on Mobile
+                  if (sizeClass == WindowSizeClass.compact) ...[
+                    _buildMetricsRow(),
+                    const SizedBox(height: AppTokens.spacing32),
+                    _buildNavigationMenu(),
+                  ] else ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 2, child: _buildNavigationMenu()),
+                        const SizedBox(width: AppTokens.spacing24),
+                        Expanded(flex: 1, child: _buildMetricsRow(isVertical: true)),
                       ],
+                    )
+                  ],
 
-                      const SizedBox(height: 36),
-                      _buildSectionHeader(theme, "Daily Check-in"),
-                      const SizedBox(height: 16),
-                      _buildMainActions(context, theme),
+                  // Inline Native Advanced AdMob Gateway (Only for Freemium users)
+                  _buildAdFallbackGateway(),
 
-                      const SizedBox(height: 36),
-
-                      _buildSectionHeader(
-                        theme,
-                        "Recovery Tools",
-                        onSeeAll: () {
-                          HapticFeedback.lightImpact();
-                          // Navigator.push(
-                          //   context,
-                          //   MaterialPageRoute(
-                          //     builder: (_) => const ToolsLibraryScreen(),
-                          //   ),
-                          // );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      _buildToolGrid(context, theme),
-                      const SizedBox(height: 40),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSliverAppBar(BuildContext context, ThemeData theme) {
-    return SliverAppBar(
-      expandedHeight: 80.0,
-      floating: false,
-      pinned: true,
-      backgroundColor: theme.colorScheme.surface,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsetsDirectional.only(start: 24, bottom: 16),
-        title: Text(
-          'NeuroCalm',
-          style: TextStyle(
-            color: theme.colorScheme.primary,
-            fontWeight: FontWeight.w900,
-            fontSize: 24,
-            letterSpacing: -0.5,
-          ),
-        ),
-      ),
-      actions: [
-        Padding(
-          padding: const EdgeInsets.only(right: 24.0, top: 8.0),
-          child: InkWell(
-            onTap: () {
-              HapticFeedback.selectionClick();
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const UserProfileScreen()),
-              );
-            },
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              height: 40,
-              width: 40,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                  width: 1.5,
-                ),
-              ),
-              child: Icon(
-                Icons.person_rounded,
-                color: theme.colorScheme.primary,
-                size: 22,
+                ],
               ),
             ),
           ),
         ),
-      ],
-    );
-  }
-
-  // UI FIX: Safely unwrapping the AsyncValue to prevent NoSuchMethodError during SQLite queries
-  Widget _buildStreakCard(AsyncValue<StreakState> asyncStreak, ThemeData theme) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary,
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.primary.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.local_fire_department_rounded,
-            color: Colors.orangeAccent,
-            size: 48,
-          ),
-          const SizedBox(width: 20),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Displaying state dynamically
-                asyncStreak.when(
-                  data: (streakState) => Text(
-                    '${streakState.currentStreak} Day Streak',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  loading: () => const Padding(
-                    padding: EdgeInsets.only(bottom: 4.0),
-                    child: SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2.5,
-                      ),
-                    ),
-                  ),
-                  error: (err, stack) => const Text(
-                    '0 Day Streak',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Keep your momentum going.',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(ThemeData theme, String title, {VoidCallback? onSeeAll}) {
+  // ===========================================================================
+  // UI COMPONENTS
+  // ===========================================================================
+
+  Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: theme.colorScheme.primary.withValues(alpha: 0.8),
-            letterSpacing: 0.5,
-          ),
-        ),
-        if (onSeeAll != null)
-          GestureDetector(
-            onTap: onSeeAll,
-            child: Row(
-              children: [
-                Text(
-                  'See all',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 12,
-                  color: theme.colorScheme.primary,
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildMainActions(BuildContext context, ThemeData theme) {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildActionCard(
-            context,
-            'Face Scan',
-            Icons.face_retouching_natural_rounded,
-            theme.colorScheme.primary.withValues(alpha: 0.1),
-            theme.colorScheme.primary,
-            const EmotionScanScreen(),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildActionCard(
-            context,
-            'Talk to AI',
-            Icons.mic_none_rounded,
-            theme.colorScheme.primary,
-            Colors.white,
-            const VoiceTherapyScreen(),
-            hasShadow: true,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildToolGrid(BuildContext context, ThemeData theme) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 16,
-      crossAxisSpacing: 16,
-      childAspectRatio: 1.1,
-      children: [
-        _buildToolItem(
-          context,
-          theme,
-          'Panic Mode',
-          Icons.waves_rounded,
-          const BreathingScreen(),
-          isAlert: true,
-        ),
-        _buildToolItem(
-          context,
-          theme,
-          'My Journal',
-          Icons.history_edu_rounded,
-          const JournalTimelineScreen(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionCard(
-    BuildContext context,
-    String label,
-    IconData icon,
-    Color bg,
-    Color text,
-    Widget screen, {
-    bool hasShadow = false,
-  }) {
-    final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.heavyImpact();
-        Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: hasShadow
-              ? [
-                  BoxShadow(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : [],
-        ),
-        child: Column(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: text, size: 32),
-            const SizedBox(height: 12),
             Text(
-              label,
-              style: TextStyle(
-                color: text,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+              _getTimeBasedGreeting(),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppTokens.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: AppTokens.spacing4),
+            Text(
+              "Ready to center yourself?",
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: AppTokens.onSurface,
+                letterSpacing: -0.5,
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildToolItem(
-    BuildContext context,
-    ThemeData theme,
-    String label,
-    IconData icon,
-    Widget screen, {
-    bool isAlert = false,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        isAlert ? HapticFeedback.heavyImpact() : HapticFeedback.mediumImpact();
-        Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: isAlert ? const Color(0xFFFFF0EC) : theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.05)),
-          boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.shadow.withValues(alpha: 0.02),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isAlert
-                    ? Colors.deepOrange.withValues(alpha: 0.1)
-                    : theme.colorScheme.primary.withValues(alpha: 0.05),
+        Semantics(
+          label: "User Profile and Settings",
+          button: true,
+          child: GestureDetector(
+            onTap: () {
+              _triggerHaptic();
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const UserProfileScreen()));
+            },
+            child: Container(
+              padding: const EdgeInsets.all(AppTokens.spacing12),
+              decoration: const BoxDecoration(
+                color: AppTokens.primaryContainer,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                icon,
-                color: isAlert ? Colors.deepOrange : theme.colorScheme.primary,
-                size: 28,
+              child: const Icon(Icons.person_outline_rounded, color: AppTokens.primary, size: 24),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeroCard() {
+    return Semantics(
+      container: true,
+      label: 'AI Therapy Engine. Clear your mind. Vocalize your anxious thoughts securely.',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(AppTokens.spacing32),
+        decoration: BoxDecoration(
+          color: AppTokens.primary,
+          borderRadius: BorderRadius.circular(AppTokens.radiusLarge),
+          boxShadow: [
+            BoxShadow(
+              color: AppTokens.primary.withValues(alpha: 0.25),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: AppTokens.spacing12, vertical: AppTokens.spacing4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(AppTokens.radiusPill),
+              ),
+              child: const Text(
+                "AI THERAPY ENGINE", 
+                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0)
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppTokens.spacing16),
+            const Text(
+              "Clear your mind.",
+              style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+            ),
+            const SizedBox(height: AppTokens.spacing8),
             Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: isAlert ? Colors.deepOrange[800] : theme.colorScheme.onSurface,
-              ),
+              "Vocalize your anxious thoughts securely. Gemini AI will instantly construct a clinical CBT reframe.",
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14, height: 1.5),
+            ),
+            const SizedBox(height: AppTokens.spacing32),
+            
+            // Using our 10/10 Design System Button
+            NeuroButton(
+              label: "Begin Voice Session",
+              icon: Icons.mic_none_rounded,
+              onPressed: () {
+                _triggerHaptic();
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const VoiceReframeScreen()));
+              },
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMetricsRow({bool isVertical = false}) {
+    final streakState = ref.watch(streakProvider);
+    
+    final metrics = [
+      // 1. Streak Tracker (Reads from SQLite Provider)
+      Expanded(
+        child: _buildMetricCard(
+          icon: Icons.local_fire_department_rounded,
+          iconColor: AppTokens.warning,
+          title: "Consistency",
+          value: streakState.when(
+            data: (state) => "${state.currentStreak} Days",
+            loading: () => "...",
+            error: (_, __) => "0 Days",
+          ),
+          onTap: () {
+            // Future route to HabitCalendar
+            _triggerHaptic();
+          },
+        ),
+      ),
+      if (!isVertical) const SizedBox(width: AppTokens.spacing16),
+      if (isVertical) const SizedBox(height: AppTokens.spacing16),
+      
+      // 2. Wallet & Premium Status Tracker (Reads from RevenueCat & Local Wallet)
+      Expanded(
+        child: StreamBuilder<bool>(
+          stream: _iapService.premiumStatusStream,
+          initialData: _iapService.isPremium,
+          builder: (context, premiumSnapshot) {
+            final isPremium = premiumSnapshot.data ?? false;
+
+            if (isPremium) {
+              return _buildMetricCard(
+                icon: Icons.workspace_premium_rounded,
+                iconColor: AppTokens.secondary,
+                title: "Access",
+                value: "Premium",
+              );
+            }
+
+            // If free tier, show Indian UPI Sachet Wallet Balance
+            return StreamBuilder<int>(
+              stream: _walletService.balanceStream,
+              initialData: _walletService.currentBalance,
+              builder: (context, walletSnapshot) {
+                final balance = walletSnapshot.data ?? 0;
+                return _buildMetricCard(
+                  icon: Icons.account_balance_wallet_rounded,
+                  iconColor: AppTokens.primary,
+                  title: "Wallet",
+                  value: "$balance Credits",
+                  onTap: () {
+                    _triggerHaptic();
+                    showDialog(context: context, builder: (_) => const WalletTopUpDialog());
+                  },
+                );
+              },
+            );
+          },
+        ),
+      ),
+    ];
+
+    return isVertical 
+        ? Column(children: metrics) 
+        : Row(children: metrics);
+  }
+
+  Widget _buildMetricCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String value,
+    VoidCallback? onTap,
+  }) {
+    return Semantics(
+      button: onTap != null,
+      label: '$title: $value',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(AppTokens.spacing16),
+          decoration: BoxDecoration(
+            color: AppTokens.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppTokens.radiusMedium),
+            border: Border.all(color: AppTokens.onSurfaceVariant.withValues(alpha: 0.1)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: iconColor, size: 20),
+                  const SizedBox(width: AppTokens.spacing8),
+                  Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTokens.onSurfaceVariant)),
+                ],
+              ),
+              const SizedBox(height: AppTokens.spacing12),
+              Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTokens.onSurface)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavigationMenu() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Explore", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTokens.onSurface)),
+        const SizedBox(height: AppTokens.spacing16),
+        
+        _buildNavTile(
+          icon: Icons.grid_view_rounded,
+          title: "Tools Library",
+          subtitle: "Somatic grounding, sleep mode, and more.",
+          onTap: () {
+            _triggerHaptic();
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const ToolsLibraryScreen()));
+          },
+        ),
+        const SizedBox(height: AppTokens.spacing12),
+        
+        _buildNavTile(
+          icon: Icons.history_edu_rounded,
+          title: "My Journal",
+          subtitle: "Review your past offline AI insights.",
+          onTap: () {
+            _triggerHaptic();
+            // Assuming JournalTimelineScreen is connected via ToolsLibrary usually, 
+            // but providing direct access increases feature discoverability.
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNavTile({required IconData icon, required String title, required String subtitle, required VoidCallback onTap}) {
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTokens.radiusMedium),
+        child: Container(
+          padding: const EdgeInsets.all(AppTokens.spacing16),
+          decoration: BoxDecoration(
+            color: AppTokens.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppTokens.radiusMedium),
+            border: Border.all(color: AppTokens.onSurfaceVariant.withValues(alpha: 0.1)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(AppTokens.spacing12),
+                decoration: BoxDecoration(color: AppTokens.primaryContainer, borderRadius: BorderRadius.circular(AppTokens.radiusSmall)),
+                child: Icon(icon, color: AppTokens.primary, size: 22),
+              ),
+              const SizedBox(width: AppTokens.spacing16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTokens.onSurface)),
+                    const SizedBox(height: AppTokens.spacing4),
+                    Text(subtitle, style: const TextStyle(fontSize: 13, color: AppTokens.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: AppTokens.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdFallbackGateway() {
+    // Only fetch the routing state to determine if ads should show.
+    final routingState = ref.watch(geoRouterProvider);
+    final isPremium = _iapService.isPremium;
+
+    if (isPremium) {
+      return const SizedBox(height: AppTokens.spacing32);
+    }
+
+    return routingState.when(
+      data: (accessData) {
+        if (accessData.type == MonetizationType.adSupported) {
+          return const Padding(
+            padding: EdgeInsets.only(top: AppTokens.spacing32),
+            child: SmartBannerCard(),
+          );
+        }
+        return const SizedBox(height: AppTokens.spacing32);
+      },
+      loading: () => const SizedBox(height: AppTokens.spacing32),
+      error: (_, __) => const SizedBox(height: AppTokens.spacing32),
     );
   }
 }
