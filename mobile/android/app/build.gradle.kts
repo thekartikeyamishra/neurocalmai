@@ -24,6 +24,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Required for newer notification packages
+        isCoreLibraryDesugaringEnabled = true
     }
 
     // 🚨 ARCHITECT FIX: Updated to modern string assignment to suppress deprecation errors
@@ -38,6 +40,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Protects against 64k method limit crashes on older devices
+        multiDexEnabled = true
     }
 
     signingConfigs {
@@ -67,4 +71,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // 🚨 FIX: Bumped to 2.1.5 as required by the newest flutter_local_notifications plugin
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

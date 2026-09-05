@@ -15,6 +15,8 @@ import 'firebase_options.dart';
 import 'core/theme/app_tokens.dart';
 import 'core/services/iap_service.dart';
 import 'core/services/local_notification_service.dart';
+import 'core/services/remote_config_service.dart'; // 🚨 NEW: Cloud Configuration
+import 'core/services/wallet_service.dart'; // 🚨 NEW: Hooked Economics
 
 // Feature Screens & Services
 import 'features/auth/screens/auth_screen.dart';
@@ -24,30 +26,41 @@ import 'features/monetization/services/admob_service.dart';
 import 'features/notifications/services/push_notification_service.dart';
 
 void main() async {
-  // 1. Zone Guarding for Production Stability: Catches all uncaught async errors
+  // 1. Zone Guarding for Production Stability: Catches all uncaught async errors[cite: 15]
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
-      // 2. Load Environment Variables (API Keys Vault)
+      // 2. Load Environment Variables (API Keys Vault)[cite: 15]
       try {
         await dotenv.load(fileName: ".env");
         debugPrint('✅ Environment variables loaded successfully.');
       } catch (e) {
-        debugPrint('⚠️ Could not load .env file. Running with compile-time defaults: $e');
+        debugPrint(
+          '⚠️ Could not load .env file. Running with compile-time defaults: $e',
+        );
       }
 
-      // 3. Initialize Firebase Securely
+      // 3. Initialize Firebase Securely[cite: 15]
       try {
         await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
         );
         debugPrint('✅ Firebase initialized successfully.');
       } catch (e) {
-        debugPrint('⚠️ Firebase initialization error (Offline Mode Active): $e');
+        debugPrint(
+          '⚠️ Firebase initialization error (Offline Mode Active): $e',
+        );
       }
 
-      // 4. Initialize In-App Purchases (RevenueCat) with User Context
+      // 4. Initialize Remote Config (Cloud AI Routing & Failsafes)
+      try {
+        await RemoteConfigService().init();
+      } catch (e) {
+        debugPrint('⚠️ RemoteConfig initialization error: $e');
+      }
+
+      // 5. Initialize In-App Purchases (RevenueCat) with User Context[cite: 15]
       try {
         final currentUid = FirebaseAuth.instance.currentUser?.uid;
         await IAPService().init(currentUid);
@@ -56,7 +69,15 @@ void main() async {
         debugPrint('⚠️ IAP initialization error: $e');
       }
 
-      // 5. Initialize AdMob Service
+      // 6. Initialize Wallet Service (300 Credit Welcome Bonus & Sync)
+      try {
+        await WalletService().init();
+        debugPrint('✅ Wallet Service initialized.');
+      } catch (e) {
+        debugPrint('⚠️ Wallet initialization error: $e');
+      }
+
+      // 7. Initialize AdMob Service[cite: 15]
       try {
         await AdMobService.instance.initialize();
         debugPrint('✅ AdMob SDK initialized.');
@@ -64,7 +85,7 @@ void main() async {
         debugPrint('⚠️ AdMob initialization error (Running offline): $e');
       }
 
-      // 6. Initialize Zero-Cost Local & Remote Notifications
+      // 8. Initialize Zero-Cost Local & Remote Notifications[cite: 15]
       try {
         await LocalNotificationService().init();
         await PushNotificationService.instance.initialize();
@@ -73,7 +94,7 @@ void main() async {
         debugPrint('⚠️ Notification initialization warning: $e');
       }
 
-      // 7. Lock Orientation & System UI to Guarantee Design Tokens
+      // 9. Lock Orientation & System UI to Guarantee Design Tokens[cite: 15]
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
@@ -88,7 +109,7 @@ void main() async {
         ),
       );
 
-      // 8. Wrap the entire app in Riverpod's ProviderScope for state management
+      // 10. Wrap the entire app in Riverpod's ProviderScope for state management[cite: 15]
       runApp(const ProviderScope(child: NeuroCalmApp()));
     },
     (error, stack) {
@@ -98,7 +119,7 @@ void main() async {
 }
 
 // ============================================================================
-// GLOBAL THEME CONFIGURATION
+// GLOBAL THEME CONFIGURATION[cite: 15]
 // ============================================================================
 final ThemeData _neuroCalmTheme = ThemeData(
   useMaterial3: true,
@@ -129,11 +150,7 @@ final ThemeData _neuroCalmTheme = ThemeData(
       letterSpacing: -0.3,
       color: AppTokens.onSurface,
     ),
-    bodyLarge: TextStyle(
-      fontSize: 16,
-      height: 1.6,
-      color: AppTokens.onSurface,
-    ),
+    bodyLarge: TextStyle(fontSize: 16, height: 1.6, color: AppTokens.onSurface),
     bodyMedium: TextStyle(
       fontSize: 14,
       height: 1.5,
@@ -162,7 +179,7 @@ class NeuroCalmApp extends StatelessWidget {
 }
 
 // ============================================================================
-// BOOTSTRAP / WELCOME SCREEN
+// BOOTSTRAP / WELCOME SCREEN[cite: 15]
 // ============================================================================
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -186,7 +203,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   void initState() {
     super.initState();
 
-    // UI Entry Animations
+    // UI Entry Animations[cite: 15]
     _entryController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -199,13 +216,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     );
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
-      CurvedAnimation(
-        parent: _entryController,
-        curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
-      ),
-    );
+          CurvedAnimation(
+            parent: _entryController,
+            curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
+          ),
+        );
 
-    // Ambient Pulse Animation
+    // Ambient Pulse Animation[cite: 15]
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3000),
@@ -217,7 +234,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     _entryController.forward().then((_) {
       if (mounted) {
         _pulseController.repeat(reverse: true);
-        _checkExistingSession(); // Automatically route if user session exists
+        _checkExistingSession(); // Automatically route if user session exists[cite: 15]
       }
     });
   }
@@ -229,11 +246,12 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     super.dispose();
   }
 
-  /// Evaluates local storage and Firebase Auth to determine the starting destination
+  /// Evaluates local storage and Firebase Auth to determine the starting destination[cite: 15]
   Future<void> _checkExistingSession() async {
     try {
       final preferences = await SharedPreferences.getInstance();
-      final hasSeenOnboarding = preferences.getBool('has_seen_onboarding') ?? false;
+      final hasSeenOnboarding =
+          preferences.getBool('has_seen_onboarding') ?? false;
 
       User? user;
       try {
@@ -242,7 +260,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         user = null;
       }
 
-      // Intentional delay to allow the user to ground themselves visually
+      // Intentional delay to allow the user to ground themselves visually[cite: 15]
       await Future.delayed(const Duration(milliseconds: 1600));
 
       if (!mounted) return;
@@ -252,9 +270,11 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         Navigator.pushReplacement(
           context,
           PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const DashboardScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-                FadeTransition(opacity: animation, child: child),
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const DashboardScreen(),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) =>
+                    FadeTransition(opacity: animation, child: child),
             transitionDuration: const Duration(milliseconds: 800),
           ),
         );
@@ -274,7 +294,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
     try {
       final preferences = await SharedPreferences.getInstance();
-      final hasSeenOnboarding = preferences.getBool('has_seen_onboarding') ?? false;
+      final hasSeenOnboarding =
+          preferences.getBool('has_seen_onboarding') ?? false;
 
       if (!mounted) return;
 
@@ -319,7 +340,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: AppTokens.spacing32,
-                vertical: 40.0, // Replaced undefined AppTokens.spacing40
+                vertical: 40.0,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,12 +362,12 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 40.0), // Replaced undefined AppTokens.spacing40
+                  const SizedBox(height: 40.0),
                   Text(
                     'Find your\ncenter.',
                     style: theme.textTheme.displayLarge,
                   ),
-                  const SizedBox(height: 20.0), // Replaced undefined AppTokens.spacing20
+                  const SizedBox(height: 20.0),
                   Text(
                     'Your private, offline-ready space for emotional clarity and cognitive behavioral therapy.',
                     style: theme.textTheme.bodyLarge?.copyWith(
@@ -377,13 +398,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   ),
                   const SizedBox(height: AppTokens.spacing16),
 
-                  // Start CTA Button
+                  // Start CTA Button[cite: 15]
                   AnimatedOpacity(
                     opacity: _showButton ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 800),
                     child: SizedBox(
                       width: double.infinity,
-                      height: 56, // Accessible standard touch target
+                      height: 56, // Accessible standard touch target[cite: 15]
                       child: ElevatedButton(
                         onPressed: (_isRouting || !_showButton)
                             ? null
@@ -392,7 +413,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                           backgroundColor: AppTokens.primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppTokens.radiusMedium),
+                            borderRadius: BorderRadius.circular(
+                              AppTokens.radiusMedium,
+                            ),
                           ),
                           elevation: 0,
                         ),

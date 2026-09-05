@@ -1,6 +1,8 @@
+// cSpell:disable
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Core Architecture & Design System
 import '../../../core/theme/app_tokens.dart';
@@ -20,14 +22,14 @@ import '../../voice_therapy/presentation/voice_reframe_screen.dart';
 import '../../wallet/presentation/wallet_topup_dialog.dart';
 
 // Monetization
-import '../../monetization/widgets/smart_banner_card.dart';
+import '../../monetization/widgets/sponsor_reward_card.dart'; // 🚨 NEW: Value-Exchange UI
 import '../../monetization/geo_router.dart';
 
 /// The 10/10 Adaptive Dashboard Screen.
-/// This screen acts as the central hub of the product architecture. It actively
+/// This screen acts as the central hub of the product architecture[cite: 14]. It actively
 /// listens to the design tokens, scales dynamically based on the window size
 /// (phone vs. tablet), securely displays the user's local streak data, and
-/// seamlessly routes them to the new AI tools and RevenueCat paywalls.
+/// seamlessly routes them to the new AI tools and RevenueCat paywalls[cite: 14].
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -38,15 +40,32 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   final IAPService _iapService = IAPService();
   final WalletService _walletService = WalletService();
+  
+  // State to hold our ad suppression logic for new users
+  bool _isInAdGracePeriod = true; 
 
   @override
   void initState() {
     super.initState();
-    // Pre-fetch local SQLite streak data on boot to ensure zero-latency UI
+    _evaluateGracePeriod();
+    
+    // Pre-fetch local SQLite streak data on boot to ensure zero-latency UI[cite: 14]
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Modern Riverpod equivalent for triggering a refresh/rebuild
       ref.invalidate(streakProvider);
     });
+  }
+
+  /// Checks how many sessions the user has completed. 
+  /// Hides ads until they are "Hooked" (3+ sessions).
+  Future<void> _evaluateGracePeriod() async {
+    final prefs = await SharedPreferences.getInstance();
+    final totalInvestments = prefs.getInt('total_investments') ?? 0;
+    
+    if (mounted) {
+      setState(() {
+        _isInAdGracePeriod = totalInvestments < 3;
+      });
+    }
   }
 
   void _triggerHaptic() => HapticFeedback.lightImpact();
@@ -60,12 +79,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 10/10 Adaptive System: Determines spacing based on physical window size
+    // 10/10 Adaptive System: Determines spacing based on physical window size[cite: 14]
     final horizontalPadding = AdaptiveLayout.getHorizontalPadding(context);
     final sizeClass = AdaptiveLayout.getSizeClass(context);
 
-    // We wrap the entire dashboard in our StatefulView.
-    // If the database is locked or loading, it handles the skeleton safely.
     return Scaffold(
       backgroundColor: AppTokens.background,
       body: SafeArea(
@@ -87,7 +104,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   _buildHeroCard(),
                   const SizedBox(height: AppTokens.spacing24),
 
-                  // Adaptive Layout: Row on Tablets/Desktop, Column on Mobile
+                  // Adaptive Layout: Row on Tablets/Desktop, Column on Mobile[cite: 14]
                   if (sizeClass == WindowSizeClass.compact) ...[
                     _buildMetricsRow(),
                     const SizedBox(height: AppTokens.spacing32),
@@ -106,8 +123,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ],
 
-                  // Inline Native Advanced AdMob Gateway (Only for Freemium users)
-                  _buildAdFallbackGateway(),
+                  // 🚨 MONETIZATION UPGRADE: Dynamic Sponsor Card
+                  _buildSponsorRewardGateway(),
                 ],
               ),
             ),
@@ -118,7 +135,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   // ===========================================================================
-  // UI COMPONENTS
+  // UI COMPONENTS[cite: 14]
   // ===========================================================================
 
   Widget _buildHeader() {
@@ -237,7 +254,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
             const SizedBox(height: AppTokens.spacing32),
 
-            // Using our 10/10 Design System Button
+            // Using our 10/10 Design System Button[cite: 14]
             NeuroButton(
               label: "Begin Voice Session",
               icon: Icons.mic_none_rounded,
@@ -259,7 +276,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final streakState = ref.watch(streakProvider);
 
     final metrics = [
-      // 1. Streak Tracker (Reads from SQLite Provider)
+      // 1. Streak Tracker (Reads from SQLite Provider)[cite: 14]
       Expanded(
         child: _buildMetricCard(
           icon: Icons.local_fire_department_rounded,
@@ -271,7 +288,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             error: (error, stack) => "0 Days",
           ),
           onTap: () {
-            // Future route to HabitCalendar
+            // Future route to HabitCalendar[cite: 14]
             _triggerHaptic();
           },
         ),
@@ -279,7 +296,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       if (!isVertical) const SizedBox(width: AppTokens.spacing16),
       if (isVertical) const SizedBox(height: AppTokens.spacing16),
 
-      // 2. Wallet & Premium Status Tracker (Reads from RevenueCat & Local Wallet)
+      // 2. Wallet & Premium Status Tracker (Reads from RevenueCat & Local Wallet)[cite: 14]
       Expanded(
         child: StreamBuilder<bool>(
           stream: _iapService.premiumStatusStream,
@@ -296,7 +313,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               );
             }
 
-            // If free tier, show Indian UPI Sachet Wallet Balance
+            // If free tier, show Indian UPI Sachet Wallet Balance[cite: 14]
             return StreamBuilder<int>(
               stream: _walletService.balanceStream,
               initialData: _walletService.currentBalance,
@@ -421,7 +438,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           onTap: () {
             _triggerHaptic();
             // Assuming JournalTimelineScreen is connected via ToolsLibrary usually,
-            // but providing direct access increases feature discoverability.
+            // but providing direct access increases feature discoverability.[cite: 14]
           },
         ),
       ],
@@ -493,22 +510,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildAdFallbackGateway() {
-    // Only fetch the routing state to determine if ads should show.
-    final routingState = ref.watch(geoRouterProvider);
-    final isPremium = _iapService.isPremium;
-
-    if (isPremium) {
+  /// 🚨 CHURN REDUCTION GATEWAY
+  /// Dynamically replaces basic banner ads with the `SponsorRewardCard` when credits run low.
+  Widget _buildSponsorRewardGateway() {
+    if (_isInAdGracePeriod || _iapService.isPremium) {
       return const SizedBox(height: AppTokens.spacing32);
     }
+
+    final routingState = ref.watch(geoRouterProvider);
+    final currentBalance = _walletService.currentBalance;
 
     return routingState.when(
       data: (accessData) {
         if (accessData.type == MonetizationType.adSupported) {
-          return const Padding(
-            padding: EdgeInsets.only(top: AppTokens.spacing32),
-            child: SmartBannerCard(),
-          );
+          // If the user drops below 50 credits, give them the option to watch an ad
+          // instead of forcing a banner on them. 
+          if (currentBalance < 50) {
+            return const Padding(
+              padding: EdgeInsets.only(top: AppTokens.spacing32),
+              child: SponsorRewardCard(),
+            );
+          }
+          // Otherwise, normal smooth dashboard experience
+          return const SizedBox(height: AppTokens.spacing32);
         }
         return const SizedBox(height: AppTokens.spacing32);
       },
@@ -517,3 +541,4 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 }
+// cSpell:enable

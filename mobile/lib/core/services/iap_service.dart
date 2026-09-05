@@ -1,3 +1,4 @@
+// cSpell:disable
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -5,7 +6,7 @@ import 'package:purchases_flutter/purchases_flutter.dart';
 import '../constants/monetization_constants.dart';
 
 /// A production-ready singleton service managing all In-App Purchases and Subscriptions
-/// via RevenueCat. Handles cross-platform edge cases (Android, iOS, Web) and 
+/// via RevenueCat. Handles cross-platform edge cases (Android, iOS, Web) and
 /// seamlessly bridges Indian micro-transactions with International subscriptions.
 class IAPService {
   // Singleton instance
@@ -13,14 +14,12 @@ class IAPService {
   factory IAPService() => _instance;
   IAPService._internal();
 
-  // Securely fetch API keys from the compile-time environment variables
-  static const String _apiKeyAndroid = String.fromEnvironment(
-    'REVENUECAT_ANDROID_KEY',
-    defaultValue: '', 
-  );
+  // Integrated specific RevenueCat Android Public API Key
+  static const String _apiKeyAndroid = 'goog_tHrWrlWkDXdSDbtIqmwAFBjCEQC';
+
   static const String _apiKeyIOS = String.fromEnvironment(
     'REVENUECAT_IOS_KEY',
-    defaultValue: '', 
+    defaultValue: '',
   );
 
   // Stream controller to broadcast premium status changes to the UI globally
@@ -39,10 +38,11 @@ class IAPService {
       late PurchasesConfiguration configuration;
 
       if (defaultTargetPlatform == TargetPlatform.android) {
-        if (_apiKeyAndroid.isEmpty) debugPrint("⚠️ WARNING: Android RevenueCat key is empty.");
         configuration = PurchasesConfiguration(_apiKeyAndroid);
       } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-        if (_apiKeyIOS.isEmpty) debugPrint("⚠️ WARNING: iOS RevenueCat key is empty.");
+        if (_apiKeyIOS.isEmpty) {
+          debugPrint("⚠️ WARNING: iOS RevenueCat key is empty.");
+        }
         configuration = PurchasesConfiguration(_apiKeyIOS);
       } else {
         debugPrint("⚠️ Unsupported platform for In-App Purchases");
@@ -64,13 +64,12 @@ class IAPService {
       // Initial status check
       final initialInfo = await Purchases.getCustomerInfo();
       _updatePremiumStatus(initialInfo);
-      
     } catch (e) {
       debugPrint("🚨 [RevenueCat Initialization Error]: $e");
     }
   }
 
-  /// Logs the user into RevenueCat. 
+  /// Logs the user into RevenueCat.
   /// Call this when a user signs in via Firebase Auth.
   Future<void> loginUser(String uid) async {
     try {
@@ -103,24 +102,26 @@ class IAPService {
     }
   }
 
-  /// Executes a purchase for a specific package (Consumable Sachet or Subscription).
+  /// Executes a direct native purchase for a specific package.
+  /// NOTE: When using the new MonetizationCircuitBreaker in the UI, you will 
+  /// bypass this specific method and pass the Package directly to the breaker. 
+  /// This method remains intact as a structural fallback.
   Future<bool> purchasePackage(Package package) async {
     try {
-      // Execute purchase and handle the result object required by newer SDK versions
+      // Safely bypass the missing PurchaseParams constructor and extract the customerInfo natively
       // ignore: deprecated_member_use
       final purchaseResult = await Purchases.purchasePackage(package);
       final customerInfo = purchaseResult.customerInfo;
-      
+
       // Update local state based on the new entitlement
       _updatePremiumStatus(customerInfo);
-      
+
       // Verify if the purchase successfully unlocked the premium entitlement
       return _isPremiumStatusActive(customerInfo);
-      
     } on PlatformException catch (e) {
       final errorCode = PurchasesErrorHelper.getErrorCode(e);
       if (errorCode == PurchasesErrorCode.purchaseCancelledError) {
-        debugPrint("User cancelled the purchase flow.");
+        debugPrint("⚠️ User cancelled the purchase flow.");
       } else {
         debugPrint("🚨 [IAP Purchase Error]: ${e.message}");
       }
@@ -131,10 +132,10 @@ class IAPService {
     }
   }
 
-  /// Restores previous purchases. 
+  /// Restores previous purchases.
   /// Mandatory for App Store compliance and crucial for users switching phones.
   Future<bool> restorePurchases() async {
-    if (kIsWeb) return false; 
+    if (kIsWeb) return false;
 
     try {
       final customerInfo = await Purchases.restorePurchases();
@@ -152,7 +153,11 @@ class IAPService {
 
   /// Evaluates if the premium entitlement is currently active.
   bool _isPremiumStatusActive(CustomerInfo customerInfo) {
-    return customerInfo.entitlements.all[MonetizationConstants.entitlementPremium]?.isActive == true;
+    return customerInfo
+            .entitlements
+            .all[MonetizationConstants.entitlementPremium]
+            ?.isActive ==
+        true;
   }
 
   /// Updates the global premium status and broadcasts it to the UI layer.
@@ -164,9 +169,10 @@ class IAPService {
       debugPrint("👑 [Premium Status Updated]: $_isPremium");
     }
   }
-  
-  /// Dispose stream (rarely used as this is a singleton, but good practice)
+
+  /// Dispose stream
   void dispose() {
     _premiumStatusController.close();
   }
 }
+// cSpell:enable
