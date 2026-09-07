@@ -21,7 +21,8 @@ class GeminiService {
       throw Exception('CRITICAL: GEMINI_API_KEY not found in .env');
     }
     return GenerativeModel(
-      model: 'gemini-2.5-flash',
+      // 🚨 FIX: Upgraded from deprecated gemini-2.5-flash to the active gemini-3.5-flash model
+      model: 'gemini-3.5-flash',
       apiKey: apiKey,
       systemInstruction: Content.system(_getSystemPrompt(dialect)),
       generationConfig: GenerationConfig(

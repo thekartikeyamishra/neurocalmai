@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable no-trailing-spaces */
 /* eslint-disable eol-last */
 /* eslint-disable padded-blocks */
@@ -28,10 +29,14 @@ export const generateCBTReframe = functions
       throw new functions.https.HttpsError("internal", "Server configuration error.");
     }
 
-    // Instantiating here prevents the 10000ms global boot timeout crash
     const genAI = new GoogleGenerativeAI(apiKey);
     const userText = data.userText;
-    const modelName = data.model || "gemini-3.5-flash-lite";
+    
+    // 🚨 FIX: Intercept deprecated 1.5/2.0 models and force upgrade to 3.5-flash
+    let modelName = data.model || "gemini-3.5-flash";
+    if (modelName.includes("1.5") || modelName.includes("2.0")) {
+      modelName = "gemini-3.5-flash";
+    }
 
     if (!userText || typeof userText !== "string") {
       throw new functions.https.HttpsError("invalid-argument", "No valid user text provided.");
@@ -57,11 +62,11 @@ export const generateCBTReframe = functions
       
       const cleanJson = text.replace(/```json/gi, "").replace(/```/g, "").trim();
       return JSON.parse(cleanJson);
-      // eslint-disable-next-line no-trailing-spaces
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Gemini API Error:", error);
-      throw new functions.https.HttpsError("internal", "Failed to generate CBT reframe.");
+      // Pass the exact API error back to the client UI
+      throw new functions.https.HttpsError("internal", `AI Generation Failed: ${error.message}`);
     }
   });
 

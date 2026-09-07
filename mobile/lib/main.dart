@@ -26,12 +26,12 @@ import 'features/monetization/services/admob_service.dart';
 import 'features/notifications/services/push_notification_service.dart';
 
 void main() async {
-  // 1. Zone Guarding for Production Stability: Catches all uncaught async errors[cite: 15]
+  // 1. Zone Guarding for Production Stability: Catches all uncaught async errors
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
-      // 2. Load Environment Variables (API Keys Vault)[cite: 15]
+      // 2. Load Environment Variables (API Keys Vault)
       try {
         await dotenv.load(fileName: ".env");
         debugPrint('✅ Environment variables loaded successfully.');
@@ -41,7 +41,7 @@ void main() async {
         );
       }
 
-      // 3. Initialize Firebase Securely[cite: 15]
+      // 3. Initialize Firebase Securely
       try {
         await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
@@ -60,7 +60,7 @@ void main() async {
         debugPrint('⚠️ RemoteConfig initialization error: $e');
       }
 
-      // 5. Initialize In-App Purchases (RevenueCat) with User Context[cite: 15]
+      // 5. Initialize In-App Purchases (RevenueCat) with User Context
       try {
         final currentUid = FirebaseAuth.instance.currentUser?.uid;
         await IAPService().init(currentUid);
@@ -77,7 +77,7 @@ void main() async {
         debugPrint('⚠️ Wallet initialization error: $e');
       }
 
-      // 7. Initialize AdMob Service[cite: 15]
+      // 7. Initialize AdMob Service
       try {
         await AdMobService.instance.initialize();
         debugPrint('✅ AdMob SDK initialized.');
@@ -85,7 +85,7 @@ void main() async {
         debugPrint('⚠️ AdMob initialization error (Running offline): $e');
       }
 
-      // 8. Initialize Zero-Cost Local & Remote Notifications[cite: 15]
+      // 8. Initialize Zero-Cost Local & Remote Notifications
       try {
         await LocalNotificationService().init();
         await PushNotificationService.instance.initialize();
@@ -94,7 +94,7 @@ void main() async {
         debugPrint('⚠️ Notification initialization warning: $e');
       }
 
-      // 9. Lock Orientation & System UI to Guarantee Design Tokens[cite: 15]
+      // 9. Lock Orientation & System UI to Guarantee Design Tokens
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
@@ -109,7 +109,7 @@ void main() async {
         ),
       );
 
-      // 10. Wrap the entire app in Riverpod's ProviderScope for state management[cite: 15]
+      // 10. Wrap the entire app in Riverpod's ProviderScope for state management
       runApp(const ProviderScope(child: NeuroCalmApp()));
     },
     (error, stack) {
@@ -119,7 +119,7 @@ void main() async {
 }
 
 // ============================================================================
-// GLOBAL THEME CONFIGURATION[cite: 15]
+// GLOBAL THEME CONFIGURATION
 // ============================================================================
 final ThemeData _neuroCalmTheme = ThemeData(
   useMaterial3: true,
@@ -179,7 +179,7 @@ class NeuroCalmApp extends StatelessWidget {
 }
 
 // ============================================================================
-// BOOTSTRAP / WELCOME SCREEN[cite: 15]
+// BOOTSTRAP / WELCOME SCREEN
 // ============================================================================
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -203,7 +203,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   void initState() {
     super.initState();
 
-    // UI Entry Animations[cite: 15]
+    // UI Entry Animations
     _entryController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -222,7 +222,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           ),
         );
 
-    // Ambient Pulse Animation[cite: 15]
+    // Ambient Pulse Animation
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3000),
@@ -234,7 +234,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     _entryController.forward().then((_) {
       if (mounted) {
         _pulseController.repeat(reverse: true);
-        _checkExistingSession(); // Automatically route if user session exists[cite: 15]
+        _checkExistingSession(); // Automatically route if user session exists
       }
     });
   }
@@ -246,7 +246,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     super.dispose();
   }
 
-  /// Evaluates local storage and Firebase Auth to determine the starting destination[cite: 15]
+  /// Evaluates local storage and Firebase Auth to determine the starting destination
   Future<void> _checkExistingSession() async {
     try {
       final preferences = await SharedPreferences.getInstance();
@@ -260,7 +260,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         user = null;
       }
 
-      // Intentional delay to allow the user to ground themselves visually[cite: 15]
+      // Intentional delay to allow the user to ground themselves visually
       await Future.delayed(const Duration(milliseconds: 1600));
 
       if (!mounted) return;
@@ -297,13 +297,25 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       final hasSeenOnboarding =
           preferences.getBool('has_seen_onboarding') ?? false;
 
+      // 🚨 FRICTIONLESS ANONYMOUS ENTRY
+      // Instantly generate a secure UID for the user without asking for an email.
+      if (FirebaseAuth.instance.currentUser == null) {
+        final userCred = await FirebaseAuth.instance.signInAnonymously();
+        
+        // Immediately bind this new anonymous UID to RevenueCat
+        if (userCred.user != null) {
+          await IAPService().loginUser(userCred.user!.uid);
+        }
+      }
+
       if (!mounted) return;
 
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
+          // Bypass the AuthScreen entirely and drop them directly into the app
           pageBuilder: (context, animation, secondaryAnimation) =>
-              hasSeenOnboarding ? const AuthScreen() : const OnboardingScreen(),
+              hasSeenOnboarding ? const DashboardScreen() : const OnboardingScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             final scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
               CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
@@ -318,9 +330,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       );
     } catch (e) {
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+        setState(() => _isRouting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to connect securely. Please try again.')),
         );
       }
     }
@@ -385,7 +397,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                           color: AppTokens.onSurfaceVariant,
                         ),
                         const SizedBox(width: AppTokens.spacing8),
-                        Text(
+                        const Text(
                           '100% Private & Offline-Ready',
                           style: TextStyle(
                             color: AppTokens.onSurfaceVariant,
@@ -398,13 +410,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   ),
                   const SizedBox(height: AppTokens.spacing16),
 
-                  // Start CTA Button[cite: 15]
+                  // Start CTA Button
                   AnimatedOpacity(
                     opacity: _showButton ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 800),
                     child: SizedBox(
                       width: double.infinity,
-                      height: 56, // Accessible standard touch target[cite: 15]
+                      height: 56, // Accessible standard touch target
                       child: ElevatedButton(
                         onPressed: (_isRouting || !_showButton)
                             ? null
