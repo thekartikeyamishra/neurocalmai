@@ -5,6 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../therapy/services/gemini_service.dart';
 import '../../settings/providers/language_provider.dart';
 import '../models/structured_journal_entry.dart';
+import '../services/journal_storage_service.dart';
+import '../../retention/services/reengagement_service.dart';
+import '../services/local_journal_service.dart';
+import '../../monetization/services/admob_service.dart';
 import '../widgets/cognitive_mirror_card.dart';
 
 class StandardJournalScreen extends ConsumerStatefulWidget {
@@ -58,6 +62,7 @@ class _StandardJournalScreenState extends ConsumerState<StandardJournalScreen> {
       """;
 
       final activeLanguage = ref.read(languageProvider);
+      ReengagementService.instance.markStarted('standard_journal');
       final result = await GeminiService.instance.generateTextReply(
         prompt, 
         [], 
@@ -98,10 +103,21 @@ class _StandardJournalScreenState extends ConsumerState<StandardJournalScreen> {
       updatedAt: DateTime.now(),
     );
 
-    // TODO: await JournalStorageService.instance.saveEntry(entry);
-    debugPrint('🌱 [Reflection Saved]: ${entry.toMap()}');
-    
-    if (mounted) Navigator.pop(context);
+    ReengagementService.instance.markFinished('standard_journal');
+    final saved = await JournalStorageService.instance.saveEntry(entry);
+    if (mounted) ref.invalidate(journalTimelineProvider);
+    if (!saved && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save this entry on your device. Please try again.')),
+      );
+      return;
+    }
+
+    if (mounted) {
+      Navigator.pop(context);
+      // Natural break: the session is complete and saved.
+      AdMobService.instance.showInterstitialAdIfAppropriate(placement: 'journal_saved');
+    }
   }
 
   @override
@@ -175,7 +191,7 @@ class _StandardJournalScreenState extends ConsumerState<StandardJournalScreen> {
               hintText: "Today was...",
               hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
               filled: true,
-              fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.all(20),
             ),

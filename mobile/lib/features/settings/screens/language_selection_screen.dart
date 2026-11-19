@@ -99,7 +99,7 @@ class _LanguageSelectionScreenState extends ConsumerState<LanguageSelectionScree
                   physics: const BouncingScrollPhysics(),
                   // Iterating directly over the global supported languages instead of hardcoded maps
                   itemCount: LanguageNotifier.supportedLanguages.length,
-                  // 🚨 FIX: Replaced (_, __) with named parameters to satisfy Dart linter rules
+                  // Named parameters keep the separator builder readable.
                   separatorBuilder: (context, index) => const SizedBox(height: 16),
                   itemBuilder: (context, index) {
                     final dialect = LanguageNotifier.supportedLanguages[index];

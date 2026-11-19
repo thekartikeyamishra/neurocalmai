@@ -1,11 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-// Internal Services
-import '../services/admob_service.dart';
+import '../../../core/services/remote_config_service.dart';
+
+import '../../../core/services/iap_service.dart';
+import '../../../core/services/wallet_service.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 
+/// Premium paywall.
+///
+/// FIX: the previous screen had NO purchase path — "Unlock All Features
+/// Instantly" just closed the screen (and fired an interstitial on the way
+/// out, which punishes the exact users most likely to pay). It now lists the
+/// RevenueCat offering (localized prices from Play), purchases, restores,
+/// and never shows an ad.
 class PremiumPaywallScreen extends ConsumerStatefulWidget {
   const PremiumPaywallScreen({super.key});
 
@@ -13,229 +24,289 @@ class PremiumPaywallScreen extends ConsumerStatefulWidget {
   ConsumerState<PremiumPaywallScreen> createState() => _PremiumPaywallScreenState();
 }
 
-class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> with TickerProviderStateMixin {
-  late AnimationController _entranceController;
+class _PremiumPaywallScreenState extends ConsumerState<PremiumPaywallScreen> {
+  static const _bg = Color(0xFF0F172A);
+  static const _accent = Color(0xFF38BDF8);
+  static const _cta = Color(0xFF2A5C5A);
+
+  List<Package> _packages = [];
+  Package? _selected;
+  bool _loading = true;
+  bool _purchasing = false;
 
   @override
   void initState() {
     super.initState();
-    _entranceController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-    _entranceController.forward();
+    _loadOfferings();
   }
 
-  @override
-  void dispose() {
-    _entranceController.dispose();
-    super.dispose();
+  Future<void> _loadOfferings() async {
+    final offerings = await IAPService().getOfferings();
+    final all = offerings?.current?.availablePackages ?? const <Package>[];
+    // Subscriptions + lifetime only (credit sachets live in the wallet dialog).
+    final plans = all.where((p) => !p.storeProduct.identifier.startsWith('sachet_')).toList()
+      ..sort((a, b) => _rank(a).compareTo(_rank(b)));
+    if (!mounted) return;
+    setState(() {
+      _packages = plans;
+      _selected = plans.isNotEmpty ? plans.first : null;
+      _loading = false;
+    });
   }
 
-  void _continueWithFreeTier() {
-    HapticFeedback.lightImpact();
-    
-    // Serve interstitial ad on checkout escape path to secure revenue loop
-    try {
-      AdMobService.instance.showInterstitialAdIfAppropriate();
-    } catch (e) {
-      debugPrint('⚠️ [AdMob Engine]: Exit ad display bypassed - $e');
+  // Annual first (best value + lowest churn), then monthly, then lifetime.
+  int _rank(Package p) {
+    switch (p.packageType) {
+      case PackageType.annual:
+        return 0;
+      case PackageType.monthly:
+        return 1;
+      case PackageType.lifetime:
+        return 2;
+      default:
+        return 3;
     }
+  }
 
-    Navigator.pushReplacement(
-      context, 
-      MaterialPageRoute(builder: (_) => const DashboardScreen())
-    );
+  String _label(Package p) {
+    switch (p.packageType) {
+      case PackageType.annual:
+        return 'Yearly';
+      case PackageType.monthly:
+        return 'Monthly';
+      case PackageType.lifetime:
+        return 'Lifetime';
+      default:
+        return p.storeProduct.title.split('(').first.trim();
+    }
+  }
+
+  String? _badge(Package p) {
+    if (p.packageType == PackageType.annual) {
+      final monthly = _packages.where((x) => x.packageType == PackageType.monthly).toList();
+      if (monthly.isNotEmpty) {
+        final m = monthly.first.storeProduct.price * 12;
+        final a = p.storeProduct.price;
+        if (m > 0 && a < m) return 'Save ${(((m - a) / m) * 100).round()}%';
+      }
+      return 'Best value';
+    }
+    if (p.packageType == PackageType.lifetime) return 'Pay once';
+    return null;
+  }
+
+  Future<void> _purchase() async {
+    final pkg = _selected;
+    if (pkg == null || _purchasing) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _purchasing = true);
+    final ok = await IAPService().purchasePackage(pkg);
+    if (!mounted) return;
+    setState(() => _purchasing = false);
+    if (ok) {
+      WalletService().sync();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Welcome to Premium. Ads are gone and every tool is unlocked.')),
+      );
+      _close();
+    }
+  }
+
+  Future<void> _restore() async {
+    setState(() => _purchasing = true);
+    final ok = await IAPService().restorePurchases();
+    if (!mounted) return;
+    setState(() => _purchasing = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok ? 'Premium restored.' : 'No previous purchase found for this Google account.'),
+    ));
+    if (ok) _close();
+  }
+
+  void _close() {
+    HapticFeedback.lightImpact();
+    if (Navigator.of(context).canPop()) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A), // Premium Midnight Blue
-      body: Stack(
-        children: [
-          Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              height: 350,
-              width: 350,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF38BDF8).withValues(alpha: 0.08),
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Align(
+              alignment: Alignment.topLeft,
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white54),
+                onPressed: _close,
+                tooltip: 'Continue with free',
               ),
             ),
-          ),
-          
-          SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white38),
-                      onPressed: _continueWithFreeTier,
-                    ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                children: [
+                  const Icon(Icons.auto_awesome_rounded, size: 56, color: _accent),
+                  const SizedBox(height: 16),
+                  const Text('Calm, without limits',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: -0.8)),
+                  const SizedBox(height: 8),
+                  Text('Less than a cup of coffee a month. Cancel anytime in Google Play.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 15, height: 1.4)),
+                  const SizedBox(height: 28),
+                  _benefit(Icons.all_inclusive_rounded, 'Unlimited reflections', 'No daily cap on voice, journal and chat sessions.'),
+                  _benefit(Icons.block_rounded, 'Zero ads, ever', 'Nothing between you and a calmer mind.'),
+                  _benefit(Icons.lock_open_rounded, 'Every tool unlocked', 'Voice reframe, somatic grounding and PDF export — no credits needed.'),
+                  _benefit(Icons.lock_rounded, 'Still private', 'Your journal stays on your device. Always.'),
+                  const SizedBox(height: 12),
+                  if (_loading)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: CircularProgressIndicator(color: _accent)),
+                    )
+                  else if (_packages.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'Plans could not be loaded. Check your connection and try again.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                      ),
+                    )
+                  else
+                    ..._packages.map(_planTile),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: SizedBox(
+                width: double.infinity,
+                height: 58,
+                child: ElevatedButton(
+                  onPressed: _selected == null || _purchasing ? null : _purchase,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _cta,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.white12,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                    elevation: 0,
                   ),
+                  child: _purchasing
+                      ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                      : Text(
+                          _selected == null ? 'Unavailable' : 'Continue · ${_selected!.storeProduct.priceString}',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                        ),
                 ),
-                
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 40),
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      _buildAnimatedComponent(
-                        index: 0,
-                        child: Column(
-                          children: [
-                            const Icon(Icons.auto_awesome_rounded, size: 64, color: Color(0xFF38BDF8)),
-                            const SizedBox(height: 24),
-                            const Text(
-                              "Results",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white, 
-                                fontSize: 34, 
-                                fontWeight: FontWeight.w900, 
-                                letterSpacing: -1.0,
-                                height: 1.1,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              "Unlock deep capabilities to transform your mental patterns. Experience full outcome tracking risk-free.",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 16, height: 1.4),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 48),
-                      
-                      _buildAnimatedComponent(
-                        index: 1,
-                        child: Column(
-                          children: [
-                            _buildBenefitRow(Icons.psychology_rounded, 'Conflict Decoder', 'Save time and cognitive stress with guided argument resolution.'),
-                            _buildBenefitRow(Icons.nights_stay_rounded, 'Dream CBT Analyzer', 'Interpret hidden subconscious stress indicators automatically.'),
-                            _buildBenefitRow(Icons.flash_on_rounded, 'Unlimited Compute & AI', 'Full access to state-of-the-art parameters for fast processing.'),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 32),
-                      
-                      // Adaptive, non-breaking aesthetic message replaces broken store container
-                      _buildAnimatedComponent(
-                        index: 2,
-                        child: Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                          ),
-                          child: Column(
-                            children: [
-                              const Icon(Icons.bolt_rounded, color: Colors.amber, size: 32),
-                              const SizedBox(height: 12),
-                              const Text(
-                                "Supported by Mindfulness Sponsors",
-                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                "Enjoy full features absolutely free. Premium resources are seamlessly subsidized via non-intrusive mindfulness sponsorships.",
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13, height: 1.4),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 40),
-                      
-                      _buildAnimatedComponent(
-                        index: 3,
-                        child: SizedBox(
-                          height: 60,
-                          child: ElevatedButton(
-                            onPressed: _continueWithFreeTier,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2A5C5A),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                              elevation: 0,
-                            ),
-                            child: const Text(
-                              "Unlock All Features Instantly",
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: 0.3),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton(onPressed: _purchasing ? null : _restore, child: const Text('Restore purchase', style: TextStyle(color: Colors.white60))),
+                TextButton(onPressed: _close, child: const Text('Continue free', style: TextStyle(color: Colors.white60))),
+              ],
+            ),
+            // Store-required subscription disclosure (Apple 3.1.2 / Google Play).
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                _selected?.packageType == PackageType.lifetime
+                    ? 'One-time purchase. No subscription.'
+                    : 'Subscriptions renew automatically at the price shown unless cancelled at least 24 hours before '
+                        'the end of the period. Manage or cancel any time in your Google Play or App Store account.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white38, fontSize: 11.5, height: 1.4),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton(
+                  onPressed: () => launchUrl(Uri.parse(RemoteConfigService().termsUrl), mode: LaunchMode.externalApplication),
+                  child: const Text('Terms of Use', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                ),
+                TextButton(
+                  onPressed: () => launchUrl(Uri.parse(RemoteConfigService().privacyPolicyUrl), mode: LaunchMode.externalApplication),
+                  child: const Text('Privacy Policy', style: TextStyle(color: Colors.white54, fontSize: 12)),
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildAnimatedComponent({required int index, required Widget child}) {
-    return TweenAnimationBuilder<double>(
-      duration: Duration(milliseconds: 400 + (index * 150)),
-      tween: Tween<double>(begin: 0.0, end: 1.0),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, widget) {
-        return Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, 20 * (1 - value)),
-            child: widget,
-          ),
-        );
-      },
-      child: child,
+  Widget _planTile(Package p) {
+    final selected = identical(p, _selected);
+    final badge = _badge(p);
+    return GestureDetector(
+      onTap: () => setState(() => _selected = p),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: selected ? 0.10 : 0.04),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: selected ? _accent : Colors.white12, width: selected ? 2 : 1),
+        ),
+        child: Row(
+          children: [
+            Icon(selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                color: selected ? _accent : Colors.white38),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(_label(p),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+            ),
+            if (badge != null)
+              Container(
+                margin: const EdgeInsets.only(right: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: _accent.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(8)),
+                child: Text(badge, style: const TextStyle(color: _accent, fontSize: 11, fontWeight: FontWeight.w800)),
+              ),
+            Text(p.storeProduct.priceString,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildBenefitRow(IconData icon, String title, String desc) {
+  Widget _benefit(IconData icon, String title, String desc) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24.0),
+      padding: const EdgeInsets.only(bottom: 18),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF38BDF8).withValues(alpha: 0.1),
-              shape: BoxShape.circle
-            ),
-            child: Icon(icon, color: const Color(0xFF38BDF8), size: 24),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), shape: BoxShape.circle),
+            child: Icon(icon, color: _accent, size: 22),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 2),
-                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 4),
-                Text(desc, style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14, height: 1.4)),
+                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15.5)),
+                const SizedBox(height: 3),
+                Text(desc, style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13.5, height: 1.35)),
               ],
             ),
-          )
+          ),
         ],
       ),
     );

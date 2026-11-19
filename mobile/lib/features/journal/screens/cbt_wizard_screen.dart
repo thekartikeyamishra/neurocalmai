@@ -6,6 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../therapy/services/gemini_service.dart';
 import '../../settings/providers/language_provider.dart';
 import '../models/structured_journal_entry.dart';
+import '../services/journal_storage_service.dart';
+import '../../retention/services/reengagement_service.dart';
+import '../services/local_journal_service.dart';
+import '../../monetization/services/admob_service.dart';
 import '../widgets/cognitive_mirror_card.dart';
 
 class CbtWizardScreen extends ConsumerStatefulWidget {
@@ -105,6 +109,7 @@ class _CbtWizardScreenState extends ConsumerState<CbtWizardScreen> with SingleTi
 
       // 2. Execute via Gemini Service
       final activeLanguage = ref.read(languageProvider);
+      ReengagementService.instance.markStarted('cbt_wizard');
       final result = await GeminiService.instance.generateTextReply(
         prompt, 
         [], // No chat history needed for workflow triage
@@ -151,11 +156,20 @@ class _CbtWizardScreenState extends ConsumerState<CbtWizardScreen> with SingleTi
       updatedAt: DateTime.now(),
     );
 
-    // TODO: Connect to JournalStorageService -> await JournalStorageService.instance.saveEntry(entry);
-    debugPrint('✅ Structured CBT Entry Ready for DB: ${entry.toMap()}');
-    
+    ReengagementService.instance.markFinished('cbt_wizard');
+    final saved = await JournalStorageService.instance.saveEntry(entry);
+    if (mounted) ref.invalidate(journalTimelineProvider);
+    if (!saved && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save this entry on your device. Please try again.')),
+      );
+      return;
+    }
+
     if (mounted) {
       Navigator.pop(context);
+      // Natural break: the session is complete and saved.
+      AdMobService.instance.showInterstitialAdIfAppropriate(placement: 'journal_saved');
     }
   }
 
@@ -294,7 +308,7 @@ class _CbtWizardScreenState extends ConsumerState<CbtWizardScreen> with SingleTi
               hintText: "e.g., My manager sent me a message at 4:50 PM saying we need to talk tomorrow.",
               hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
               filled: true,
-              fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.all(20),
             ),
@@ -349,7 +363,7 @@ class _CbtWizardScreenState extends ConsumerState<CbtWizardScreen> with SingleTi
           SliderTheme(
             data: SliderThemeData(
               activeTrackColor: Color.lerp(theme.colorScheme.primary, const Color(0xFFE11D48), _intensity / 100),
-              inactiveTrackColor: theme.colorScheme.surfaceVariant,
+              inactiveTrackColor: theme.colorScheme.surfaceContainerHighest,
               thumbColor: Colors.white,
               trackHeight: 12,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 16, elevation: 4),
@@ -418,7 +432,7 @@ class _CbtWizardScreenState extends ConsumerState<CbtWizardScreen> with SingleTi
               hintText: "e.g., I'm definitely going to be fired tomorrow. They realized I'm not good enough.",
               hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
               filled: true,
-              fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.all(20),
             ),
@@ -463,7 +477,7 @@ class _CbtWizardScreenState extends ConsumerState<CbtWizardScreen> with SingleTi
             decoration: InputDecoration(
               hintText: "Answer the question above to build a more balanced perspective...",
               filled: true,
-              fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.all(20),
             ),

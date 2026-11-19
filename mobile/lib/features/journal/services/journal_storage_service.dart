@@ -1,162 +1,155 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/structured_journal_entry.dart';
+import 'local_journal_service.dart';
 
-/// Service responsible for managing structured journal data.
-/// Engineered for offline-first capabilities and telemetry pattern extraction.
+/// Structured journal storage — ON-DEVICE ONLY.
+///
+/// PRIVACY FIX: the product promise is "your journals stay on your device",
+/// but this service wrote entries to a cloud `/journals` collection. It now
+/// stores everything in the local SQLite journal (the same one the "My
+/// Journal" timeline reads), and migrates any legacy cloud entries down to
+/// the device once, then deletes them from the cloud.
 class JournalStorageService {
   static final JournalStorageService instance = JournalStorageService._internal();
+  JournalStorageService._internal();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  static const String _marker = 'structured_v1';
+  static const String _kMigrated = 'journals_cloud_migrated_v1';
 
-  JournalStorageService._internal() {
-    // 🛡️ DATA MOAT: Explicitly enforce offline persistence.
-    // This allows the app to function flawlessly in rural areas or airplane mode.
-    // Data is written to local SQLite automatically and synced when connectivity returns.
-    _firestore.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-    );
-  }
+  String _uid() => FirebaseAuth.instance.currentUser?.uid ?? 'local';
 
-  /// Helper to get the current authenticated user securely
-  String _getSecureUserId() {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) {
-      throw Exception('Security Error: Unauthorized access attempt. User is not logged in.');
+  static String _labelFor(String intentId) {
+    switch (intentId) {
+      case 'cbt_wizard':
+        return 'CBT Reframe';
+      case 'sleep_dump':
+        return 'Sleep Dump';
+      case 'guided_task':
+        return 'Task Unblock';
+      case 'standard_journal':
+        return 'Reflection';
+      default:
+        return 'Journal';
     }
-    return uid;
   }
 
-  // ===========================================================================
-  // CORE CRUD OPERATIONS
-  // ===========================================================================
+  Map<String, dynamic> _toJsonSafe(StructuredJournalEntry e) => {
+        'marker': _marker,
+        'id': e.id,
+        'userId': e.userId,
+        'intentId': e.intentId,
+        'intensity': e.intensity,
+        'rawInputs': e.rawInputs,
+        'aiDistortionTag': e.aiDistortionTag,
+        'aiSocraticQuestion': e.aiSocraticQuestion,
+        'userReframe': e.userReframe,
+        'createdAt': e.createdAt.toIso8601String(),
+        'updatedAt': e.updatedAt.toIso8601String(),
+      };
 
-  /// Saves a new structured journal entry or updates an existing one.
-  /// Works entirely offline; Firebase SDK handles background syncing.
-  Future<void> saveEntry(StructuredJournalEntry entry) async {
+  /// Saves an entry locally. Never throws to the UI (journals must not be lost
+  /// silently, so failures are logged and surfaced via the return value).
+  Future<bool> saveEntry(StructuredJournalEntry entry) async {
     try {
-      final uid = _getSecureUserId();
-      
-      // Safety check to enforce architecture rules
-      if (entry.userId != uid) {
-        throw Exception('Data Integrity Error: Attempted to save an entry for a mismatched user ID.');
-      }
-
-      // If the ID is a temporary local timestamp, generate a secure Firebase ID
-      String documentId = entry.id;
-      final collection = _firestore.collection('journals');
-      
-      if (!documentId.contains(RegExp(r'[a-zA-Z]'))) {
-        documentId = collection.doc().id;
-      }
-
-      // Convert the entry to a Map and inject Firestore server timestamps for accuracy
-      final data = entry.copyWith(id: documentId).toMap();
-      data['createdAt'] = entry.createdAt.millisecondsSinceEpoch > 0 ? Timestamp.fromDate(entry.createdAt) : FieldValue.serverTimestamp();
-      data['updatedAt'] = FieldValue.serverTimestamp();
-
-      // Write to the top-level /journals collection (protected by firestore.rules)
-      await collection.doc(documentId).set(data, SetOptions(merge: true));
-      
-      debugPrint('✅ [Journal Storage]: Entry saved successfully (ID: $documentId).');
-
+      final normalized = entry.userId == 'current_user' || entry.userId.isEmpty
+          ? entry.copyWith(userId: _uid())
+          : entry;
+      final insightParts = <String>[
+        if ((normalized.userReframe ?? '').isNotEmpty) normalized.userReframe!,
+        if ((normalized.aiSocraticQuestion ?? '').isNotEmpty) normalized.aiSocraticQuestion!,
+        if ((normalized.userReframe ?? '').isEmpty && (normalized.aiSocraticQuestion ?? '').isEmpty)
+          normalized.rawInputs.values.join(' · '),
+      ];
+      await LocalJournalService.instance.saveEntry(JournalEntry(
+        date: normalized.createdAt.toIso8601String(),
+        sessionType: _labelFor(normalized.intentId),
+        emotion: normalized.aiDistortionTag ?? 'reflection',
+        aiInsight: insightParts.join('\n\n'),
+        slmFeaturesJson: jsonEncode(_toJsonSafe(normalized)),
+      ));
+      return true;
     } catch (e) {
-      debugPrint('🚨 [Journal Storage Error - Save]: $e');
-      rethrow;
+      debugPrint('🚨 [Journal Storage]: local save failed: $e');
+      return false;
     }
   }
 
-  /// Retrieves a paginated list of the user's recent journal entries.
-  /// Optimized to read from the local cache first for zero-latency UI loading.
+  /// Most recent structured entries (local).
   Future<List<StructuredJournalEntry>> getRecentEntries({int limit = 20}) async {
     try {
-      final uid = _getSecureUserId();
-      
-      final snapshot = await _firestore
-          .collection('journals')
-          .where('userId', isEqualTo: uid)
-          .orderBy('createdAt', descending: true)
-          .limit(limit)
-          .get(const GetOptions(source: Source.serverAndCache));
-
-      return snapshot.docs.map((doc) {
-        return StructuredJournalEntry.fromMap(doc.data(), doc.id);
-      }).toList();
-
-    } catch (e) {
-      debugPrint('🚨 [Journal Storage Error - Get]: $e');
-      // Graceful degradation: Return empty list so the UI doesn't hard crash
-      return []; 
-    }
-  }
-
-  /// Deletes a journal entry permanently.
-  Future<void> deleteEntry(String documentId) async {
-    try {
-      // Security: We don't just delete by ID, we query it first to ensure ownership
-      // though firestore.rules will reject a bad delete anyway.
-      await _firestore.collection('journals').doc(documentId).delete();
-      debugPrint('🗑️ [Journal Storage]: Entry $documentId deleted.');
-    } catch (e) {
-      debugPrint('🚨 [Journal Storage Error - Delete]: $e');
-      rethrow;
-    }
-  }
-
-  // ===========================================================================
-  // ANALYTICS & PATTERN DETECTION (The Data Moat)
-  // ===========================================================================
-
-  /// Aggregates cognitive distortions over the last X days to show the user their mental patterns.
-  Future<Map<String, int>> getDistortionFrequency(int daysBack) async {
-    try {
-      final uid = _getSecureUserId();
-      final cutoffDate = DateTime.now().subtract(Duration(days: daysBack));
-
-      final snapshot = await _firestore
-          .collection('journals')
-          .where('userId', isEqualTo: uid)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoffDate))
-          .get(const GetOptions(source: Source.serverAndCache));
-
-      final Map<String, int> frequencies = {};
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final String? distortion = data['aiDistortionTag'];
-        
-        if (distortion != null && distortion.isNotEmpty && distortion != 'none') {
-          frequencies[distortion] = (frequencies[distortion] ?? 0) + 1;
+      final rows = await LocalJournalService.instance.fetchHistory();
+      final out = <StructuredJournalEntry>[];
+      for (final row in rows) {
+        final raw = row.slmFeaturesJson;
+        if (raw == null || !raw.contains(_marker)) continue;
+        final map = jsonDecode(raw);
+        if (map is Map<String, dynamic>) {
+          out.add(StructuredJournalEntry.fromMap(map, (map['id'] ?? '${row.id}').toString()));
         }
+        if (out.length >= limit) break;
       }
-
-      return frequencies;
-
+      return out;
     } catch (e) {
-      debugPrint('🚨 [Journal Analytics Error]: $e');
-      return {};
+      debugPrint('🚨 [Journal Storage]: read failed: $e');
+      return [];
     }
   }
 
-  /// Creates a real-time stream of entries (useful if the user is syncing data across multiple devices).
-  Stream<List<StructuredJournalEntry>> streamEntries() {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) return const Stream.empty();
+  /// Local entries are deleted from the timeline by row id.
+  Future<void> deleteEntry(String documentId) async {
+    final id = int.tryParse(documentId);
+    if (id != null) await LocalJournalService.instance.deleteEntry(id);
+  }
 
-    return _firestore
-        .collection('journals')
-        .where('userId', isEqualTo: uid)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        return StructuredJournalEntry.fromMap(doc.data(), doc.id);
-      }).toList();
-    });
+  Future<Map<String, int>> getDistortionFrequency(int daysBack) async {
+    final cutoff = DateTime.now().subtract(Duration(days: daysBack));
+    final entries = await getRecentEntries(limit: 500);
+    final Map<String, int> frequencies = {};
+    for (final e in entries) {
+      if (e.createdAt.isBefore(cutoff)) continue;
+      final d = e.aiDistortionTag;
+      if (d != null && d.isNotEmpty && d != 'none') {
+        frequencies[d] = (frequencies[d] ?? 0) + 1;
+      }
+    }
+    return frequencies;
+  }
+
+  Stream<List<StructuredJournalEntry>> streamEntries() async* {
+    yield await getRecentEntries();
+  }
+
+  /// One-time: copy legacy cloud journals to the device, then delete them
+  /// from Firestore. Safe to call every launch; retries until it succeeds.
+  Future<void> migrateCloudJournalsToDevice() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_kMigrated) == true) return;
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+
+      final snap = await FirebaseFirestore.instance
+          .collection('journals')
+          .where('userId', isEqualTo: uid)
+          .limit(500)
+          .get(const GetOptions(source: Source.server));
+      for (final doc in snap.docs) {
+        final entry = StructuredJournalEntry.fromMap(doc.data(), doc.id);
+        final saved = await saveEntry(entry);
+        if (saved) await doc.reference.delete();
+      }
+      await prefs.setBool(_kMigrated, true);
+      if (snap.docs.isNotEmpty) {
+        debugPrint('🔒 [Journal Storage]: moved ${snap.docs.length} entries to device.');
+      }
+    } catch (e) {
+      debugPrint('ℹ️ [Journal Storage]: migration deferred: $e');
+    }
   }
 }

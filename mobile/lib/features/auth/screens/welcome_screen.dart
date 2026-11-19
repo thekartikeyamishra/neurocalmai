@@ -99,8 +99,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         Navigator.pushReplacement(
           context,
           PageRouteBuilder(
-            pageBuilder: (_, __, ___) => const DashboardScreen(),
-            transitionsBuilder: (_, animation, __, child) =>
+            pageBuilder: (_, _, _) => const DashboardScreen(),
+            transitionsBuilder: (_, animation, _, child) =>
                 FadeTransition(opacity: animation, child: child),
             // Zero loading jumps, fluid 60FPS transition
             transitionDuration: const Duration(milliseconds: 800), 
@@ -132,7 +132,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         context,
         PageRouteBuilder(
           // Bypasses account generation forms to experience app outcome immediately
-          pageBuilder: (context, _, __) =>
+          pageBuilder: (context, _, _) =>
               hasSeenOnboarding ? const AuthScreen() : const OnboardingScreen(),
           transitionsBuilder: (context, animation, _, child) {
             final scaleAnimation = Tween<double>(begin: 0.96, end: 1.0).animate(

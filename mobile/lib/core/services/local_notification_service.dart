@@ -116,21 +116,15 @@ class LocalNotificationService {
       iOS: iosDetails,
     );
 
-    final now = tz.TZDateTime.now(tz.local);
-    // Target 8:00 PM local time
-    var scheduledDate = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      20,
-      0,
-    );
-
-    // If it's already past 8 PM today, push the schedule to tomorrow
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    // FIX: `tz.local` is UTC unless explicitly set, so "8 PM" fired at
+    // 8 PM UTC (1:30 AM in India). We compute 8 PM in the *device* zone and
+    // schedule the equivalent UTC instant; the daily repeat keeps that time.
+    final nowLocal = DateTime.now();
+    var targetLocal = DateTime(nowLocal.year, nowLocal.month, nowLocal.day, 20, 0);
+    if (!targetLocal.isAfter(nowLocal)) {
+      targetLocal = targetLocal.add(const Duration(days: 1));
     }
+    final scheduledDate = tz.TZDateTime.from(targetLocal.toUtc(), tz.UTC);
 
     // 🚨 FIX: Modern SDK v14+ requires fully named arguments for zonedSchedule
     await _notificationsPlugin.zonedSchedule(
@@ -144,6 +138,69 @@ class LocalNotificationService {
           DateTimeComponents.time, // Repeats daily at this exact time
       payload: 'evening_reflection_trigger',
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // WIN-BACK SEQUENCE (zero server cost, works offline, fully on-device)
+  // Scheduled when the app goes to background, cancelled when it returns, so
+  // only people who actually drift away ever receive them.
+  // ---------------------------------------------------------------------------
+  static const List<int> _winBackIds = [101, 102, 103, 104, 105];
+  static const List<int> _winBackDays = [1, 3, 7, 14, 30];
+  static const List<List<String>> _winBackCopy = [
+    ['Your free reflections refreshed', 'One minute is enough to untangle today\'s loudest thought.'],
+    ['Still replaying something?', 'Name the thinking trap in 60 seconds. It usually loosens its grip.'],
+    ['A fresh start is one tap away', 'No streak pressure. Just one calm minute when you want it.'],
+    ['Your journal is safe on this phone', 'Come back any time — your past reframes are waiting for you.'],
+    ['We saved you a calm minute', 'If things feel heavy, a 60-second reflection can help. We\'re here.'],
+  ];
+
+  bool get isReady => _isInitialized;
+
+  Future<void> scheduleWinBack() async {
+    if (!_isInitialized) return; // never before the user granted value/permission
+    try {
+      await cancelWinBack();
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'neurocalm_gentle_nudges',
+          'Gentle check-ins',
+          channelDescription: 'Occasional reminders when you have been away for a while.',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+          icon: '@mipmap/ic_launcher',
+        ),
+        iOS: DarwinNotificationDetails(presentSound: false),
+      );
+      final now = DateTime.now();
+      for (var i = 0; i < _winBackIds.length; i++) {
+        final day = now.add(Duration(days: _winBackDays.elementAt(i)));
+        final local = DateTime(day.year, day.month, day.day, 19, 30);
+        final copy = _winBackCopy.elementAt(i);
+        await _notificationsPlugin.zonedSchedule(
+          id: _winBackIds.elementAt(i),
+          title: copy.first,
+          body: copy.last,
+          scheduledDate: tz.TZDateTime.from(local.toUtc(), tz.UTC),
+          notificationDetails: details,
+          androidScheduleMode: AndroidScheduleMode.inexact,
+          payload: 'win_back_${_winBackDays.elementAt(i)}',
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ [WinBack]: schedule failed: $e');
+    }
+  }
+
+  Future<void> cancelWinBack() async {
+    if (!_isInitialized) return;
+    for (final id in _winBackIds) {
+      try {
+        await _notificationsPlugin.cancel(id: id);
+      } catch (e) {
+        debugPrint('⚠️ [WinBack]: cancel $id failed: $e');
+      }
+    }
   }
 
   /// Cancels all scheduled local notifications.

@@ -111,7 +111,7 @@ class ReferralEngine extends AsyncNotifier<int> {
           "Use my invite code '$shortCode' during setup to unlock 3 Free Premium Cognitive Insights. "
           "Download here: https://neurocalm.ai/invite";
 
-      await Share.share(shareText, subject: 'An invite to NeuroCalm AI');
+      await SharePlus.instance.share(ShareParams(text: shareText, subject: 'An invite to NeuroCalm AI'));
       
     } catch (e) {
       debugPrint('🚨 [Referral Share Error]: $e');

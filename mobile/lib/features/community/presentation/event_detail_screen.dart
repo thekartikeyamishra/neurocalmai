@@ -14,11 +14,11 @@ class EventDetailScreen extends StatefulWidget {
   final Map<String, dynamic> eventData;
 
   const EventDetailScreen({
-    Key? key,
+    super.key,
     required this.communityId,
     required this.eventId,
     required this.eventData,
-  }) : super(key: key);
+  });
 
   @override
   State<EventDetailScreen> createState() => _EventDetailScreenState();
@@ -243,7 +243,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: primarySage.withOpacity(0.1),
+                        color: primarySage.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -318,7 +318,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))
                 ],
               ),
               child: SizedBox(
@@ -337,7 +337,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                       )
                     : ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: _isAttending ? Colors.redAccent.withOpacity(0.1) : primarySage,
+                          backgroundColor: _isAttending ? Colors.redAccent.withValues(alpha: 0.1) : primarySage,
                           elevation: 0,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         ),

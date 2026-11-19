@@ -12,6 +12,7 @@ import '../../habit_loop/services/habit_loop_service.dart';
 
 // Routing
 import 'premium_paywall_screen.dart';
+import '../../tracking/services/review_service.dart';
 
 class InsightRewardScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> slmFeatures;
@@ -85,17 +86,17 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
     if (_isAdLoading) return;
 
     _triggerHaptic(true);
+    // FIX: the old 4-second timeout fired while the ad was still playing,
+    // marked the flow as "handled" and silently discarded the reward the
+    // user had just watched. Now: if no ad is ready we say so immediately;
+    // otherwise only the SDK's own callbacks decide the outcome.
+    if (!AdMobService.instance.isRewardedAdReady.value) {
+      _showAdBlockerFailsafe();
+      return;
+    }
     setState(() {
       _isAdLoading = true;
       _adHandled = false;
-    });
-
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted && _isAdLoading && !_adHandled) {
-        _adHandled = true;
-        setState(() => _isAdLoading = false);
-        _showAdBlockerFailsafe();
-      }
     });
 
     AdMobService.instance.showRewardedAd(
@@ -107,6 +108,13 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             _isAdLoading = false;
           });
           InsightHaptics.successOverridden();
+        }
+      },
+      onAdFailed: () {
+        if (mounted && !_adHandled) {
+          _adHandled = true;
+          setState(() => _isAdLoading = false);
+          _showAdBlockerFailsafe();
         }
       },
       onAdClosed: () {
@@ -134,7 +142,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
             Icon(Icons.wifi_off_rounded, color: theme.colorScheme.primary),
             const SizedBox(width: 12),
             Text(
-              'Connection Blocked',
+              'Sponsor unavailable',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -145,7 +153,7 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
           ],
         ),
         content: Text(
-          'We couldn\'t load the sponsor message. This usually happens if you are offline or using an Ad-Blocker.\n\nTo view your insights offline without interruptions, upgrade to NeuroCalm Premium.',
+          'No sponsor message is available right now (you may be offline). Try again in a minute, or go Premium to unlock insights instantly without ads.',
           style: TextStyle(height: 1.5, color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.8), fontSize: 15),
         ),
         actions: [
@@ -198,6 +206,9 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
       userHelpfulnessRating: isPositive,
     );
 
+    // Ask for a Play review only at a proven "this helped me" moment.
+    if (isPositive) AsoReviewService.instance.evaluateSessionForReview().ignore();
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -238,7 +249,13 @@ class _InsightRewardScreenState extends ConsumerState<InsightRewardScreen> with 
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            Navigator.pop(context);
+            // Natural break after a completed insight (capped + spaced).
+            if (_rewardUnlocked) {
+              AdMobService.instance.showInterstitialAdIfAppropriate(placement: 'insight_done');
+            }
+          },
         ),
         actions: [
           if (!_rewardUnlocked)

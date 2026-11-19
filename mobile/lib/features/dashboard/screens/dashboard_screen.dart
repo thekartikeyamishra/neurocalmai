@@ -13,6 +13,7 @@ import '../../../core/widgets/stateful_view.dart';
 // Services
 import '../../../core/services/iap_service.dart';
 import '../../../core/services/wallet_service.dart';
+import '../../../core/bootstrap/post_value_bootstrap.dart';
 
 // Features & Providers
 import '../../tracking/providers/streak_provider.dart';
@@ -20,10 +21,17 @@ import '../../settings/screens/user_profile_screen.dart';
 import '../../therapy/screens/therapy_home_screen.dart';
 import '../../voice_therapy/presentation/voice_reframe_screen.dart';
 import '../../wallet/presentation/wallet_topup_dialog.dart';
+import '../../tracking/screens/habit_calendar_screen.dart';
+import '../../journal/screens/journal_timeline_screen.dart';
+import '../../growth/widgets/invite_friends_card.dart';
+import '../../retention/widgets/retention_cards.dart';
 
 // Monetization
 import '../../monetization/widgets/sponsor_reward_card.dart'; // 🚨 NEW: Value-Exchange UI
 import '../../monetization/geo_router.dart';
+import '../../monetization/services/admob_service.dart';
+import '../../monetization/widgets/native_ad_card.dart';
+import '../../monetization/widgets/smart_banner_card.dart';
 
 /// The 10/10 Adaptive Dashboard Screen.
 /// This screen acts as the central hub of the product architecture[cite: 14]. It actively
@@ -48,22 +56,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   void initState() {
     super.initState();
     _evaluateGracePeriod();
+    AdMobService.instance.sdkReadyNotifier.addListener(_evaluateGracePeriod);
     
-    // Pre-fetch local SQLite streak data on boot to ensure zero-latency UI[cite: 14]
+    // Pre-fetch local SQLite streak data on boot to ensure zero-latency UI
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.invalidate(streakProvider);
+      // Notifications/referrals only after the user has reached value.
+      PostValueBootstrap.run();
     });
   }
 
-  /// Checks how many sessions the user has completed. 
-  /// Hides ads until they are "Hooked" (3+ sessions).
+  @override
+  void dispose() {
+    AdMobService.instance.sdkReadyNotifier.removeListener(_evaluateGracePeriod);
+    super.dispose();
+  }
+
+  /// FIX: ads used to stay hidden until the user had *rated* 3 insights
+  /// (`total_investments`), which most users never do — so most users never
+  /// saw a single ad. Grace is now based on app sessions (Remote Config).
   Future<void> _evaluateGracePeriod() async {
-    final prefs = await SharedPreferences.getInstance();
-    final totalInvestments = prefs.getInt('total_investments') ?? 0;
-    
+    // Ensures SharedPreferences is warm for other widgets; grace comes from ads.
+    await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
-        _isInAdGracePeriod = totalInvestments < 3;
+        _isInAdGracePeriod = !AdMobService.instance.canServeAds;
       });
     }
   }
@@ -85,6 +102,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Scaffold(
       backgroundColor: AppTokens.background,
+      bottomNavigationBar: const SmartBannerCard(),
       body: SafeArea(
         child: StatefulView(
           state: ViewState.content,
@@ -100,6 +118,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 children: [
                   _buildHeader(),
                   const SizedBox(height: AppTokens.spacing32),
+
+                  // Win-back: resume an unfinished reflection or welcome back.
+                  const ReturnCard(),
 
                   _buildHeroCard(),
                   const SizedBox(height: AppTokens.spacing24),
@@ -123,7 +144,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ],
 
-                  // 🚨 MONETIZATION UPGRADE: Dynamic Sponsor Card
+                  const PatternReportCard(),
+                  const SizedBox(height: AppTokens.spacing24),
+                  _buildDailyAllowancePill(),
+                  const SizedBox(height: AppTokens.spacing16),
+                  const InviteFriendsCard(),
+
+                  // Value-exchange sponsor card + native ad (free tier only)
                   _buildSponsorRewardGateway(),
                 ],
               ),
@@ -224,7 +251,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 borderRadius: BorderRadius.circular(AppTokens.radiusPill),
               ),
               child: const Text(
-                "AI THERAPY ENGINE",
+                "60-SECOND REFRAME",
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 10,
@@ -245,7 +272,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
             const SizedBox(height: AppTokens.spacing8),
             Text(
-              "Vocalize your anxious thoughts securely. Gemini AI will instantly construct a clinical CBT reframe.",
+              "Say what's on your mind. In seconds you get a calm, structured CBT reframe and one small next step.",
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.8),
                 fontSize: 14,
@@ -288,8 +315,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             error: (error, stack) => "0 Days",
           ),
           onTap: () {
-            // Future route to HabitCalendar[cite: 14]
             _triggerHaptic();
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HabitCalendarScreen()),
+            );
           },
         ),
       ),
@@ -434,11 +464,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _buildNavTile(
           icon: Icons.history_edu_rounded,
           title: "My Journal",
-          subtitle: "Review your past offline AI insights.",
+          subtitle: "Your entries stay on this device.",
           onTap: () {
             _triggerHaptic();
-            // Assuming JournalTimelineScreen is connected via ToolsLibrary usually,
-            // but providing direct access increases feature discoverability.[cite: 14]
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const JournalTimelineScreen()),
+            );
           },
         ),
       ],
@@ -510,35 +542,79 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  /// 🚨 CHURN REDUCTION GATEWAY
-  /// Dynamically replaces basic banner ads with the `SponsorRewardCard` when credits run low.
+  /// Shows how many free AI reflections remain today — the daily "reason to
+  /// come back" (resets every day) and a gentle nudge toward the sponsor card.
+  Widget _buildDailyAllowancePill() {
+    if (_iapService.isPremium) return const SizedBox.shrink();
+    return StreamBuilder<int>(
+      stream: _walletService.balanceStream,
+      builder: (context, _) => _allowancePillBody(),
+    );
+  }
+
+  Widget _allowancePillBody() {
+    final free = _walletService.freeRemaining;
+    final daily = _walletService.freeDaily;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTokens.primaryContainer,
+        borderRadius: BorderRadius.circular(AppTokens.radiusPill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.auto_awesome_rounded, size: 16, color: AppTokens.primary),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              free > 0
+                  ? '$free of $daily free reflections left today'
+                  : 'Free reflections refresh tomorrow · credits still work',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTokens.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Free tier: sponsor (rewarded) card when credits run low, plus one
+  /// clearly-labelled native ad. Premium and first-session users see neither.
   Widget _buildSponsorRewardGateway() {
     if (_isInAdGracePeriod || _iapService.isPremium) {
       return const SizedBox(height: AppTokens.spacing32);
     }
 
     final routingState = ref.watch(geoRouterProvider);
-    final currentBalance = _walletService.currentBalance;
 
     return routingState.when(
       data: (accessData) {
-        if (accessData.type == MonetizationType.adSupported) {
-          // If the user drops below 50 credits, give them the option to watch an ad
-          // instead of forcing a banner on them. 
-          if (currentBalance < 50) {
-            return const Padding(
-              padding: EdgeInsets.only(top: AppTokens.spacing32),
-              child: SponsorRewardCard(),
-            );
-          }
-          // Otherwise, normal smooth dashboard experience
+        if (accessData.type != MonetizationType.adSupported) {
           return const SizedBox(height: AppTokens.spacing32);
         }
-        return const SizedBox(height: AppTokens.spacing32);
+        return StreamBuilder<int>(
+          stream: _walletService.balanceStream,
+          initialData: _walletService.currentBalance,
+          builder: (context, snap) {
+            final balance = snap.data ?? 0;
+            final lowOnCredits = balance < 5 || _walletService.freeRemaining <= 1;
+            return Column(
+              children: [
+                if (lowOnCredits)
+                  const Padding(
+                    padding: EdgeInsets.only(top: AppTokens.spacing24),
+                    child: SponsorRewardCard(),
+                  ),
+                const NativeAdCard(),
+                const SizedBox(height: AppTokens.spacing24),
+              ],
+            );
+          },
+        );
       },
       loading: () => const SizedBox(height: AppTokens.spacing32),
       error: (error, stack) => const SizedBox(height: AppTokens.spacing32),
     );
   }
 }
-// cSpell:enable

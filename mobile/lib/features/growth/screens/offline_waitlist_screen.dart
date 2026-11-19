@@ -307,7 +307,7 @@ class _OfflineWaitlistScreenState extends State<OfflineWaitlistScreen> {
                 decoration: InputDecoration(
                   labelText: 'City',
                   filled: true,
-                  fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+                  fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                   prefixIcon: const Icon(Icons.location_city_rounded),
                 ),
@@ -325,7 +325,7 @@ class _OfflineWaitlistScreenState extends State<OfflineWaitlistScreen> {
                 decoration: InputDecoration(
                   labelText: 'Pincode',
                   filled: true,
-                  fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+                  fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                 ),
                 validator: (value) => 
@@ -381,7 +381,7 @@ class _OfflineWaitlistScreenState extends State<OfflineWaitlistScreen> {
                   }
                 });
               },
-              backgroundColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.5),
+              backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
               selectedColor: theme.colorScheme.primaryContainer,
               checkmarkColor: theme.colorScheme.primary,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -427,7 +427,7 @@ class _OfflineWaitlistScreenState extends State<OfflineWaitlistScreen> {
           decoration: InputDecoration(
             hintText: 'E.g., I prefer small groups of 4-5 people...\\nOr, I hope this includes weekend coffee meetups.',
             filled: true,
-            fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+            fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
           ),
         ),
@@ -448,7 +448,7 @@ class _OfflineWaitlistScreenState extends State<OfflineWaitlistScreen> {
               child: Text('Help facilitate the first meetings in your city. We provide the training and framework.'),
             ),
             value: _willingToLead,
-            activeColor: theme.colorScheme.primary,
+            activeThumbColor: theme.colorScheme.primary,
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             onChanged: (bool value) {

@@ -14,92 +14,48 @@ import 'firebase_options.dart';
 // Core Design System & Services
 import 'core/theme/app_tokens.dart';
 import 'core/services/iap_service.dart';
-import 'core/services/local_notification_service.dart';
-import 'core/services/remote_config_service.dart'; // 🚨 NEW: Cloud Configuration
-import 'core/services/wallet_service.dart'; // 🚨 NEW: Hooked Economics
+import 'core/services/remote_config_service.dart';
+import 'core/services/wallet_service.dart';
+import 'core/navigation/app_navigator.dart';
+import 'core/release/force_update_gate.dart';
+import 'features/onboarding/presentation/first_win_screen.dart';
 
 // Feature Screens & Services
-import 'features/auth/screens/auth_screen.dart';
-import 'features/auth/screens/onboarding_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/monetization/services/admob_service.dart';
-import 'features/notifications/services/push_notification_service.dart';
+import 'features/retention/services/reengagement_service.dart';
 
-void main() async {
-  // 1. Zone Guarding for Production Stability: Catches all uncaught async errors
+void main() {
+  // Zone guard: no uncaught async error can crash the app silently.
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        debugPrint('🚨 [FlutterError]: ${details.exceptionAsString()}');
+      };
 
-      // 2. Load Environment Variables (API Keys Vault)
+      // 1. Public config only (.env must contain NO secret keys anymore).
       try {
         await dotenv.load(fileName: ".env");
-        debugPrint('✅ Environment variables loaded successfully.');
       } catch (e) {
-        debugPrint(
-          '⚠️ Could not load .env file. Running with compile-time defaults: $e',
-        );
+        debugPrint('⚠️ .env not loaded (ok): $e');
       }
 
-      // 3. Initialize Firebase Securely
+      // 2. Firebase is required for auth/AI; failure keeps offline tools alive.
       try {
-        await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
-        );
-        debugPrint('✅ Firebase initialized successfully.');
+        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
       } catch (e) {
-        debugPrint(
-          '⚠️ Firebase initialization error (Offline Mode Active): $e',
-        );
+        debugPrint('⚠️ Firebase init error (offline mode): $e');
       }
 
-      // 4. Initialize Remote Config (Cloud AI Routing & Failsafes)
-      try {
-        await RemoteConfigService().init();
-      } catch (e) {
-        debugPrint('⚠️ RemoteConfig initialization error: $e');
-      }
+      // 3. Remote Config: defaults apply instantly, fetch runs in background.
+      await RemoteConfigService().init();
 
-      // 5. Initialize In-App Purchases (RevenueCat) with User Context
-      try {
-        final currentUid = FirebaseAuth.instance.currentUser?.uid;
-        await IAPService().init(currentUid);
-        debugPrint('✅ RevenueCat IAP initialized.');
-      } catch (e) {
-        debugPrint('⚠️ IAP initialization error: $e');
-      }
-
-      // 6. Initialize Wallet Service (300 Credit Welcome Bonus & Sync)
-      try {
-        await WalletService().init();
-        debugPrint('✅ Wallet Service initialized.');
-      } catch (e) {
-        debugPrint('⚠️ Wallet initialization error: $e');
-      }
-
-      // 7. Initialize AdMob Service
-      try {
-        await AdMobService.instance.initialize();
-        debugPrint('✅ AdMob SDK initialized.');
-      } catch (e) {
-        debugPrint('⚠️ AdMob initialization error (Running offline): $e');
-      }
-
-      // 8. Initialize Zero-Cost Local & Remote Notifications
-      try {
-        await LocalNotificationService().init();
-        await PushNotificationService.instance.initialize();
-        debugPrint('✅ Notification services initialized.');
-      } catch (e) {
-        debugPrint('⚠️ Notification initialization warning: $e');
-      }
-
-      // 9. Lock Orientation & System UI to Guarantee Design Tokens
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
       ]);
-
       SystemChrome.setSystemUIOverlayStyle(
         const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
@@ -109,13 +65,45 @@ void main() async {
         ),
       );
 
-      // 10. Wrap the entire app in Riverpod's ProviderScope for state management
+      // 4. Show UI immediately. Everything below runs in parallel and can
+      //    never block or crash the first frame (cold-start retention).
       runApp(const ProviderScope(child: NeuroCalmApp()));
+      unawaited(_bootstrapServices());
     },
     (error, stack) {
       debugPrint('🚨 [FATAL ASYNC ERROR]: $error\n$stack');
     },
   );
+}
+
+Future<void> _bootstrapServices() async {
+  final uid = _safeUid();
+  await Future.wait<void>([
+    _guard('IAP', () => IAPService().init(uid)),
+    _guard('Wallet', () => WalletService().init()),
+    // Consent (UMP) runs first inside, then the Ads SDK.
+    _guard('Ads', () => AdMobService.instance.initialize()),
+    // Welcome-back + win-back notifications (on-device, zero server cost).
+    _guard('Reengagement', ReengagementService.instance.start),
+  ]);
+  // Remote kill-switch for broken builds (after first frame exists).
+  await _guard('ForceUpdate', ForceUpdateGate.check);
+}
+
+String? _safeUid() {
+  try {
+    return FirebaseAuth.instance.currentUser?.uid;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _guard(String name, Future<void> Function() task) async {
+  try {
+    await task();
+  } catch (e) {
+    debugPrint('⚠️ [$name] init failed (non-fatal): $e');
+  }
 }
 
 // ============================================================================
@@ -171,6 +159,7 @@ class NeuroCalmApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'NeuroCalm AI',
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       theme: _neuroCalmTheme,
       home: const WelcomeScreen(),
@@ -260,8 +249,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         user = null;
       }
 
-      // Intentional delay to allow the user to ground themselves visually
-      await Future.delayed(const Duration(milliseconds: 1600));
+      // Short, calm beat (was 1.6s on top of a 1.2s animation = 2.8s wait).
+      await Future.delayed(const Duration(milliseconds: 300));
 
       if (!mounted) return;
 
@@ -304,7 +293,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         
         // Immediately bind this new anonymous UID to RevenueCat
         if (userCred.user != null) {
-          await IAPService().loginUser(userCred.user!.uid);
+          // Fire-and-forget: billing/wallet must never delay the first win.
+          unawaited(IAPService().loginUser(userCred.user!.uid));
+          unawaited(WalletService().init());
         }
       }
 
@@ -315,7 +306,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         PageRouteBuilder(
           // Bypass the AuthScreen entirely and drop them directly into the app
           pageBuilder: (context, animation, secondaryAnimation) =>
-              hasSeenOnboarding ? const DashboardScreen() : const OnboardingScreen(),
+              hasSeenOnboarding ? const DashboardScreen() : const FirstWinScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             final scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
               CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
@@ -381,7 +372,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   ),
                   const SizedBox(height: 20.0),
                   Text(
-                    'Your private, offline-ready space for emotional clarity and cognitive behavioral therapy.',
+                    'Untangle an anxious thought in under a minute — with CBT tools that keep your journal on your phone.',
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: AppTokens.onSurfaceVariant,
                     ),
@@ -398,7 +389,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         ),
                         const SizedBox(width: AppTokens.spacing8),
                         const Text(
-                          '100% Private & Offline-Ready',
+                          'Journal stays on your phone · No sign-up',
                           style: TextStyle(
                             color: AppTokens.onSurfaceVariant,
                             fontSize: 13,
@@ -441,7 +432,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                                 ),
                               )
                             : const Text(
-                                'Begin Session',
+                                'Start — it\'s free',
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w800,

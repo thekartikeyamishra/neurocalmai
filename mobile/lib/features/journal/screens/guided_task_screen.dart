@@ -4,6 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../therapy/services/gemini_service.dart';
 import '../../settings/providers/language_provider.dart';
+import '../models/structured_journal_entry.dart';
+import '../services/journal_storage_service.dart';
+import '../../retention/services/reengagement_service.dart';
+import '../services/local_journal_service.dart';
+import '../../monetization/services/admob_service.dart';
 
 class GuidedTaskScreen extends ConsumerStatefulWidget {
   const GuidedTaskScreen({super.key});
@@ -117,6 +122,7 @@ class _GuidedTaskScreenState extends ConsumerState<GuidedTaskScreen> with Single
       // 2. Fetch language preference and execute via the newly updated robust Gemini service
       final activeLanguage = ref.read(languageProvider);
       
+      ReengagementService.instance.markStarted('guided_task');
       final result = await GeminiService.instance.generateTextReply(
         prompt, 
         [], // No chat history needed for workflow triage
@@ -145,9 +151,23 @@ class _GuidedTaskScreenState extends ConsumerState<GuidedTaskScreen> with Single
 
   Future<void> _commitAndStart() async {
     HapticFeedback.heavyImpact();
-    // TODO: Integrate with JournalStorageService to save the workflow.
-    // In a future update, this button could launch a native 2-minute countdown timer overlay.
+    final now = DateTime.now();
+    ReengagementService.instance.markFinished('guided_task');
+    await JournalStorageService.instance.saveEntry(StructuredJournalEntry(
+      id: now.millisecondsSinceEpoch.toString(),
+      userId: 'current_user',
+      intentId: 'guided_task',
+      intensity: 0,
+      rawInputs: {'task': _taskController.text.trim(), 'micro_step': _microStepController.text.trim()},
+      aiDistortionTag: _aiResult?['slm_features']?['cognitive_distortion']?.toString(),
+      aiSocraticQuestion: _aiResult?['reply']?.toString(),
+      createdAt: now,
+      updatedAt: now,
+    ));
+    if (mounted) ref.invalidate(journalTimelineProvider);
+    if (!mounted) return;
     Navigator.pop(context);
+    AdMobService.instance.showInterstitialAdIfAppropriate(placement: 'task_committed');
   }
 
   @override
@@ -285,7 +305,7 @@ class _GuidedTaskScreenState extends ConsumerState<GuidedTaskScreen> with Single
               hintText: "e.g., Replying to that email from my accountant.",
               hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
               filled: true,
-              fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.all(20),
             ),
@@ -340,7 +360,7 @@ class _GuidedTaskScreenState extends ConsumerState<GuidedTaskScreen> with Single
                   padding: const EdgeInsets.all(20),
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: isSelected ? _actionColor.withValues(alpha: 0.1) : theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+                    color: isSelected ? _actionColor.withValues(alpha: 0.1) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: isSelected ? _actionColor : Colors.transparent,
@@ -402,7 +422,7 @@ class _GuidedTaskScreenState extends ConsumerState<GuidedTaskScreen> with Single
               hintText: "e.g., Just opening my laptop and finding the email thread.",
               hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
               filled: true,
-              fillColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.3),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.all(20),
             ),

@@ -24,12 +24,9 @@ class _SponsorRewardCardState extends State<SponsorRewardCard> {
   @override
   void initState() {
     super.initState();
-    // Securely pull the dynamic payout amount from Firebase Remote Config
-    try {
-      _rewardAmount = RemoteConfigService().rewardedAdCreditPayout;
-    } catch (_) {
-      _rewardAmount = 50; // Built-in offline failsafe
-    }
+    // Server-reported payout (authoritative), Remote Config as display fallback.
+    final serverValue = WalletService().rewardCredits;
+    _rewardAmount = serverValue > 0 ? serverValue : RemoteConfigService().rewardedAdCreditPayout;
   }
 
   void _handleWatchAd() {
@@ -39,11 +36,13 @@ class _SponsorRewardCardState extends State<SponsorRewardCard> {
     setState(() => _isAdShowing = true);
 
     AdMobService.instance.showRewardedAd(
-      onEarnedReward: () async {
-        // Atomic transaction to grant credits securely
-        await WalletService().addCreditsFromAd();
-        
-        if (mounted) {
+      onEarnedReward: () {},
+      onEarnedRewardWithNonce: (nonce) async {
+        // Server-verified, capped, idempotent credit grant.
+        final granted = await WalletService().claimAdReward(nonce);
+        if (granted > 0) _rewardAmount = granted;
+
+        if (mounted && granted > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
@@ -59,6 +58,13 @@ class _SponsorRewardCardState extends State<SponsorRewardCard> {
               backgroundColor: const Color(0xFF10B981), // Emerald Success
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+            ),
+          );
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Thanks! You've reached today's sponsor limit — it resets tomorrow."),
+              behavior: SnackBarBehavior.floating,
             ),
           );
         }

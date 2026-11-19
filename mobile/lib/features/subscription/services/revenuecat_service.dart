@@ -1,9 +1,8 @@
 /* cSpell:disable */
-import 'dart:io';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import '../../../core/constants/monetization_constants.dart';
 
 /// A production-ready service for managing RevenueCat subscriptions.
 /// Handles dynamic A/B test offerings (Quarterly $29.99 / Annual $49.99),
@@ -14,11 +13,10 @@ class RevenueCatService {
   RevenueCatService._internal();
 
   // Replace with your RevenueCat project API Keys
-  static const String _appleApiKey = 'appl_YOUR_REVENUECAT_APPLE_KEY';
-  static const String _googleApiKey = 'goog_YOUR_REVENUECAT_GOOGLE_KEY';
 
   /// Primary entitlement identifier configured in the RevenueCat dashboard.
-  static const String _premiumEntitlementKey = 'premium';
+  // Must match RevenueCat dashboard (was 'premium' -> purchases never unlocked).
+  static const String _premiumEntitlementKey = MonetizationConstants.entitlementPremium;
 
   /// Package identifier for retention down-sell offers.
   static const String _retentionPackageIdentifier = 'retention_discount';
@@ -26,23 +24,14 @@ class RevenueCatService {
   /// Initializes the RevenueCat SDK, setting debug levels and configuring the
   /// session with the Firebase Auth UID (anonymous or authenticated).
   Future<void> initialize() async {
-    try {
-      await Purchases.setLogLevel(kDebugMode ? LogLevel.debug : LogLevel.error);
-
-      final String apiKey = Platform.isIOS ? _appleApiKey : _googleApiKey;
-      final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
-
-      final configuration = PurchasesConfiguration(apiKey)
-        ..appUserID = currentUid;
-
-      await Purchases.configure(configuration);
-      debugPrint(
-        '✅ [RevenueCat]: Initialized successfully for user: $currentUid',
-      );
-    } catch (e) {
-      debugPrint('🚨 [RevenueCat Error]: SDK initialization failed: $e');
-    }
+    // RevenueCat is configured exactly once by IAPService (real API key).
+    // Re-configuring here with placeholder keys would break all purchases.
+    debugPrint('ℹ️ [RevenueCat]: initialize() delegated to IAPService.');
   }
+
+  bool _hasPremium(CustomerInfo info) =>
+      info.entitlements.all[_premiumEntitlementKey]?.isActive == true ||
+      info.entitlements.active.isNotEmpty;
 
   /// Fetches dynamic A/B test offerings directly from the RevenueCat dashboard.
   /// Automatically resolves the assigned experiment offering variant for the user.
@@ -140,12 +129,7 @@ class RevenueCatService {
       // ignore: deprecated_member_use
       final PurchaseResult result = await Purchases.purchasePackage(package);
       final bool isPremium =
-          result
-              .customerInfo
-              .entitlements
-              .all[_premiumEntitlementKey]
-              ?.isActive ??
-          false;
+          _hasPremium(result.customerInfo);
 
       if (isPremium) {
         debugPrint(
@@ -175,8 +159,7 @@ class RevenueCatService {
     try {
       final CustomerInfo customerInfo = await Purchases.getCustomerInfo();
       final bool isPremium =
-          customerInfo.entitlements.all[_premiumEntitlementKey]?.isActive ??
-          false;
+          _hasPremium(customerInfo);
       return isPremium;
     } catch (e) {
       debugPrint('🚨 [RevenueCat Error]: Failed to check premium status: $e');
@@ -189,8 +172,7 @@ class RevenueCatService {
     try {
       final CustomerInfo customerInfo = await Purchases.restorePurchases();
       final bool isPremium =
-          customerInfo.entitlements.all[_premiumEntitlementKey]?.isActive ??
-          false;
+          _hasPremium(customerInfo);
 
       if (isPremium) {
         debugPrint('✅ [RevenueCat]: Purchases restored. Premium active.');

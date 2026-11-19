@@ -3,7 +3,7 @@ import '../../../core/constants/legal_constants.dart';
 import '../services/community_service.dart';
 
 class CreateCommunityScreen extends StatefulWidget {
-  const CreateCommunityScreen({Key? key}) : super(key: key);
+  const CreateCommunityScreen({super.key});
 
   @override
   State<CreateCommunityScreen> createState() => _CreateCommunityScreenState();
@@ -136,10 +136,10 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                   textCapitalization: TextCapitalization.words,
                   decoration: InputDecoration(
                     labelText: "Chapter Name (e.g., Bengaluru Mindful Collective)",
-                    labelStyle: TextStyle(color: primarySage.withOpacity(0.7)),
+                    labelStyle: TextStyle(color: primarySage.withValues(alpha: 0.7)),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: primarySage.withOpacity(0.3)),
+                      borderSide: BorderSide(color: primarySage.withValues(alpha: 0.3)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -159,7 +159,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                         textCapitalization: TextCapitalization.words,
                         decoration: InputDecoration(
                           labelText: "City",
-                          labelStyle: TextStyle(color: primarySage.withOpacity(0.7)),
+                          labelStyle: TextStyle(color: primarySage.withValues(alpha: 0.7)),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
@@ -178,7 +178,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                         decoration: InputDecoration(
                           labelText: "Country",
                           hintText: "IN, US, UK...",
-                          labelStyle: TextStyle(color: primarySage.withOpacity(0.7)),
+                          labelStyle: TextStyle(color: primarySage.withValues(alpha: 0.7)),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),

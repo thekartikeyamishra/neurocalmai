@@ -12,6 +12,15 @@ import '../providers/language_provider.dart';
 import '../../tracking/providers/streak_provider.dart';
 
 // Sheets & Screens
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../core/ads/ad_consent_service.dart';
+import '../../../core/app_info.dart';
+import '../../../core/services/iap_service.dart';
+import '../../../core/services/remote_config_service.dart';
+import '../../monetization/screens/premium_paywall_screen.dart';
+import '../../monetization/services/admob_service.dart';
 import 'language_selection_screen.dart';
 import '../widgets/sensory_settings_sheet.dart';
 
@@ -110,6 +119,26 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   // ===========================================================================
   Future<void> _handleSignOut() async {
     _triggerHaptic(true);
+    // Guest (anonymous) accounts cannot be recovered after sign-out: their
+    // credits, invite rewards and premium link would be lost forever.
+    final isGuest = FirebaseAuth.instance.currentUser?.isAnonymous ?? false;
+    if (isGuest) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sign out of a guest account?'),
+          content: const Text(
+              'You are using NeuroCalm without an account. Signing out permanently disconnects your credits and any '
+              'Premium purchase from this device (journals on this phone are not deleted). Purchases can still be '
+              'restored from Google Play with "Restore purchase".'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stay signed in')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sign out anyway')),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
     await ref.read(authProvider.notifier).signOut();
     
     if (mounted) {
@@ -125,6 +154,95 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
         ),
         (route) => false,
       );
+    }
+  }
+
+  Future<void> _restorePurchase() async {
+    _triggerHaptic(false);
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await IAPService().restorePurchases();
+    messenger.showSnackBar(SnackBar(
+      content: Text(ok ? 'Premium restored.' : 'No previous purchase found for this Google account.'),
+    ));
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openPrivacy() async {
+    final url = RemoteConfigService().privacyPolicyUrl;
+    if (url.isNotEmpty) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      return;
+    }
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Your privacy, plainly'),
+        content: const SingleChildScrollView(
+          child: Text(
+            '• Journals, streaks and mood history are stored only on this phone.\n'
+            '• When you ask the AI for a reflection, that text (or voice clip) is sent securely to our server and '
+            'to Google\'s Gemini API to generate the reply. We do not store it.\n'
+            '• We keep a minimal account record: an anonymous ID, your credit balance, usage counts and purchase status.\n'
+            '• Ads are served by Google AdMob according to your consent choices.\n'
+            '• Face scans are processed on-device and never uploaded.\n'
+            '• You can delete your account and cloud data any time from this screen.',
+            style: TextStyle(height: 1.5),
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+      ),
+    );
+  }
+
+  Future<void> _contactSupport() async {
+    _triggerHaptic(false);
+    final email = RemoteConfigService().supportEmail;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    if (email.isNotEmpty) {
+      final uri = Uri(
+        scheme: 'mailto',
+        path: email,
+        query: 'subject=${Uri.encodeComponent('NeuroCalm help (v${AppInfo.versionName}, id $uid)')}',
+      );
+      await launchUrl(uri);
+      return;
+    }
+    await launchUrl(Uri.parse(RemoteConfigService().playStoreUrl), mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _confirmAccountDeletion() async {
+    _triggerHaptic(true);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete account and cloud data?'),
+        content: const Text(
+            'This permanently deletes your credits, usage history and account record from our servers. '
+            'Active Google Play subscriptions must be cancelled in Google Play. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.redAccent))),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('deleteMyData').call<dynamic>();
+      await LocalJournalService.instance.clearAllData();
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
+      messenger.showSnackBar(const SnackBar(content: Text('Your account and cloud data were deleted.')));
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+        (route) => false,
+      );
+    } catch (e) {
+      messenger.showSnackBar(const SnackBar(content: Text('Could not reach the server. Please try again.')));
     }
   }
 
@@ -240,11 +358,56 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     _buildSettingsTile(
                       icon: Icons.shield_rounded,
                       title: 'Privacy Policy',
-                      subtitle: 'Read our offline-first guarantee',
+                      subtitle: 'What stays on your phone and what doesn\'t',
                       onTap: () {
                         _triggerHaptic(false);
-                        // Route to privacy policy web view or native screen
+                        _openPrivacy();
                       },
+                    ),
+                    if (AdConsentService.instance.privacyOptionsRequired) ...[
+                      _buildDivider(),
+                      _buildSettingsTile(
+                        icon: Icons.tune_rounded,
+                        title: 'Privacy & ad choices',
+                        subtitle: 'Change your consent at any time',
+                        onTap: () async {
+                          _triggerHaptic(false);
+                          await AdConsentService.instance.showPrivacyOptions();
+                          await AdMobService.instance.reinitializeAfterConsentChange();
+                        },
+                      ),
+                    ],
+                    _buildDivider(),
+                    _buildSettingsTile(
+                      icon: Icons.workspace_premium_rounded,
+                      title: IAPService().isPremium ? 'Premium is active' : 'Go Premium',
+                      subtitle: IAPService().isPremium ? 'Thank you for supporting NeuroCalm' : 'No ads, no limits',
+                      onTap: () {
+                        _triggerHaptic(false);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumPaywallScreen()));
+                      },
+                    ),
+                    _buildDivider(),
+                    _buildSettingsTile(
+                      icon: Icons.restore_rounded,
+                      title: 'Restore purchase',
+                      subtitle: 'New phone? Get Premium back',
+                      onTap: _restorePurchase,
+                    ),
+                    _buildDivider(),
+                    _buildSettingsTile(
+                      icon: Icons.support_agent_rounded,
+                      title: 'Help & feedback',
+                      subtitle: 'A real person reads every message',
+                      onTap: _contactSupport,
+                    ),
+                    _buildDivider(),
+                    _buildSettingsTile(
+                      icon: Icons.person_remove_rounded,
+                      title: 'Delete account & cloud data',
+                      subtitle: 'Wallet, usage and account record',
+                      isDestructive: true,
+                      onTap: _confirmAccountDeletion,
                     ),
                     _buildDivider(),
                     _buildSettingsTile(
@@ -285,7 +448,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               index: 4,
               child: Center(
                 child: Text(
-                  'NeuroCalm AI • v1.0.0\nBuilt for privacy.',
+                  'NeuroCalm AI • v${AppInfo.versionName} (${AppInfo.buildNumber})\nSelf-help tool, not a medical service.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400], fontSize: 12, height: 1.5),
                 ),

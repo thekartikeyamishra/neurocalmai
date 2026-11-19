@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>NeuroCalm · Company Admin</title>
+<style>
+  :root { --bg:#FBFAF6; --card:#fff; --ink:#1E293B; --muted:#64748B; --line:#E5E7EB; --pri:#2F5244; --pri2:#E4F0EB; --bad:#DC2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; justify-content:space-between; align-items:center; padding:16px 24px; border-bottom:1px solid var(--line); background:#fff; }
+  header b { color:var(--pri); }
+  main { max-width:1100px; margin:0 auto; padding:24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+  .kpi { background:var(--pri2); border-radius:12px; padding:14px; }
+  .kpi .v { font-size:22px; font-weight:800; color:var(--pri); }
+  .kpi .l { font-size:12px; color:var(--muted); }
+  input, button, select { font:inherit; padding:10px 12px; border-radius:10px; border:1px solid var(--line); }
+  button { background:var(--pri); color:#fff; border:none; cursor:pointer; font-weight:700; }
+  button.ghost { background:transparent; color:var(--pri); border:1px solid var(--pri); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th, td { text-align:right; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .err { color:var(--bad); }
+  .muted { color:var(--muted); font-size:13px; }
+  pre { background:#F8FAFC; padding:12px; border-radius:10px; overflow:auto; font-size:12.5px; }
+  #login { max-width:380px; margin:80px auto; }
+  #login input { width:100%; margin-bottom:10px; }
+  .hidden { display:none; }
+  svg text { font-size:11px; fill:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div><b>NeuroCalm</b> · Company Admin</div>
+  <div class="row"><span id="who" class="muted"></span><button id="logout" class="ghost hidden">Sign out</button></div>
+</header>
+
+<section id="login" class="card">
+  <h2 style="margin-top:0">Admin sign in</h2>
+  <p class="muted">Use the admin email and password created with <code>scripts/create-admin.mjs</code>.</p>
+  <input id="email" type="email" placeholder="Admin email" autocomplete="username">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <button id="signin" style="width:100%">Sign in</button>
+  <p id="loginErr" class="err"></p>
+</section>
+
+<main id="app" class="hidden">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">Last <span id="daysLabel">14</span> days</h2>
+      <div class="row">
+        <select id="days"><option>7</option><option selected>14</option><option>30</option><option>60</option></select>
+        <button id="refresh">Refresh</button>
+      </div>
+    </div>
+    <p class="muted" id="note"></p>
+    <div class="grid" id="kpis"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">AI calls per day</h3>
+    <div id="chart"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Daily detail</h3>
+    <div style="overflow:auto"><table id="daily"></table></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Support: look up a user</h3>
+    <p class="muted">Users can find their short id in Settings → Help &amp; feedback (it is in the email subject). Paste the full uid or their invite code.</p>
+    <div class="row">
+      <input id="lookupUid" placeholder="uid" style="flex:2">
+      <input id="lookupCode" placeholder="or invite code" style="flex:1">
+      <button id="lookup">Look up</button>
+    </div>
+    <pre id="lookupOut" class="hidden"></pre>
+    <div class="row" style="margin-top:12px">
+      <input id="grantAmount" type="number" min="1" max="500" placeholder="credits (1-500)" style="width:160px">
+      <input id="grantReason" placeholder="reason (e.g. purchase not credited)" style="flex:1">
+      <button id="grant">Grant credits</button>
+    </div>
+    <p id="supportMsg" class="muted"></p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Live economy settings</h3>
+    <p class="muted">Change these in <code>mobile/functions/.env</code> and redeploy functions. Ad caps live in Firebase Remote Config.</p>
+    <pre id="economy"></pre>
+  </div>
+</main>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+  // Public web config (same as lib/firebase_options.dart → web). Not a secret.
+  const app = initializeApp({
+    apiKey: "AIzaSyD5ObkbzBOGZcHs1yRm_9Px1wJTpe9J-Ug",
+    authDomain: "neurocalmnow.firebaseapp.com",
+    projectId: "neurocalmnow",
+    appId: "1:17274539235:web:de8f7f43c130486bfa49d6",
+  });
+  const auth = getAuth(app);
+  const fns = getFunctions(app, "us-central1");
+  const call = (name, data) => httpsCallable(fns, name)(data).then(r => r.data);
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  $("signin").onclick = async () => {
+    $("loginErr").textContent = "";
+    try {
+      await signInWithEmailAndPassword(auth, $("email").value.trim(), $("password").value);
+    } catch (e) { $("loginErr").textContent = "Sign-in failed. Check email and password."; }
+  };
+  $("password").addEventListener("keydown", e => { if (e.key === "Enter") $("signin").click(); });
+  $("logout").onclick = () => signOut(auth);
+
+  onAuthStateChanged(auth, async user => {
+    if (!user) { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); $("logout").classList.add("hidden"); $("who").textContent = ""; return; }
+    const token = await user.getIdTokenResult(true);
+    if (token.claims.admin !== true) {
+      $("loginErr").textContent = "This account is not an admin.";
+      await signOut(auth); return;
+    }
+    $("who").textContent = `${token.claims.username || user.displayName || ""} · ${user.email}`;
+    $("login").classList.add("hidden"); $("app").classList.remove("hidden"); $("logout").classList.remove("hidden");
+    load();
+  });
+
+  const fmt = n => typeof n === "number" ? n.toLocaleString("en-IN") : esc(n);
+
+  async function load() {
+    const days = Number($("days").value);
+    $("daysLabel").textContent = days;
+    try {
+      const d = await call("adminDashboard", { days });
+      const t = d.totals;
+      $("note").textContent = d.note;
+      const kpis = [
+        ["AI calls", t.aiCalls], ["AI cost (est.)", "$" + t.aiCostUsdEstimate], ["AI error rate", (t.aiErrorRate * 100).toFixed(2) + "%"],
+        ["Free / credit / premium calls", `${t.aiFree} / ${t.aiCredit} / ${t.aiPremium}`], ["Rewarded ads", t.rewardedAds],
+        ["New users (wallets)", t.newWallets], ["Purchases", t.purchases], ["Subscription revenue", "$" + t.revenueUsd.toFixed(2)],
+        ["Cancellations", t.cancellations], ["Referrals redeemed / settled", `${t.referralsRedeemed} / ${t.referralsSettled}`],
+        ["Crisis sheets shown", t.crisisFlags],
+      ];
+      $("kpis").innerHTML = kpis.map(([l, v]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("");
+      const cols = ["day","aiCalls","aiFree","aiCredit","aiPremium","aiErrors","rewardedAds","newWallets","purchases","revenueUsdCents","referralsRedeemed","crisisFlags"];
+      $("daily").innerHTML = `<tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr>` +
+        [...d.days].reverse().map(r => `<tr>${cols.map(c => `<td>${fmt(r[c] ?? 0)}</td>`).join("")}</tr>`).join("");
+      drawChart(d.days);
+      $("economy").textContent = JSON.stringify({ modelChain: d.modelChain, ...d.economy }, null, 2);
+    } catch (e) { $("note").textContent = "Could not load: " + (e.message || e); }
+  }
+  $("refresh").onclick = load; $("days").onchange = load;
+
+  function drawChart(rows) {
+    const W = 1000, H = 220, pad = 36, max = Math.max(1, ...rows.map(r => r.aiCalls || 0));
+    const bw = (W - pad * 2) / Math.max(1, rows.length);
+    const bars = rows.map((r, i) => {
+      const h = ((r.aiCalls || 0) / max) * (H - pad * 2);
+      const x = pad + i * bw + 2, y = H - pad - h;
+      return `<rect x="${x}" y="${y}" width="${Math.max(2, bw - 4)}" height="${h}" rx="3" fill="#2F5244" opacity="0.85"><title>${esc(r.day)}: ${r.aiCalls || 0}</title></rect>` +
+        (rows.length <= 31 ? `<text x="${x + bw / 2 - 2}" y="${H - pad + 14}" text-anchor="middle">${esc(String(r.day).slice(5))}</text>` : "");
+    }).join("");
+    $("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="AI calls per day"><line x1="${pad}" x2="${W - pad}" y1="${H - pad}" y2="${H - pad}" stroke="#E5E7EB"/><text x="${pad}" y="${pad - 12}">max ${max}</text>${bars}</svg>`;
+  }
+
+  $("lookup").onclick = async () => {
+    $("supportMsg").textContent = "";
+    try {
+      const r = await call("adminLookupUser", { uid: $("lookupUid").value.trim(), referralCode: $("lookupCode").value.trim() });
+      $("lookupUid").value = r.uid;
+      $("lookupOut").textContent = JSON.stringify(r, null, 2);
+      $("lookupOut").classList.remove("hidden");
+    } catch (e) { $("supportMsg").textContent = e.message || "Lookup failed"; }
+  };
+
+  $("grant").onclick = async () => {
+    const uid = $("lookupUid").value.trim(), amount = Number($("grantAmount").value), reason = $("grantReason").value.trim() || "support";
+    if (!uid || !amount) { $("supportMsg").textContent = "Look up a user and enter an amount first."; return; }
+    if (!confirm(`Grant ${amount} credits to ${uid}?`)) return;
+    try {
+      const r = await call("adminGrantCredits", { uid, amount, reason });
+      $("supportMsg").textContent = `Done. New balance: ${r.balance}`;
+    } catch (e) { $("supportMsg").textContent = e.message || "Grant failed"; }
+  };
+</script>
+</body>
+</html>

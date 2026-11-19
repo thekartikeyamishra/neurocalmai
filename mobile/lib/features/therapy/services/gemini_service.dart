@@ -1,134 +1,142 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
+
+import '../../../core/safety/crisis_detector.dart';
+import '../../../core/safety/crisis_support_sheet.dart';
+import '../../../core/services/secure_ai_gateway.dart';
 import '../../settings/providers/language_provider.dart';
 
+/// Conversational CBT replies for journals, chat and voice.
+///
+/// SECURITY/COST FIX: this used to call Gemini directly from the phone with
+/// `GEMINI_API_KEY` bundled inside the APK (`.env` is a Flutter asset, so
+/// anyone could unzip the APK and bill your Google account). All calls now
+/// go through the `aiTherapyReply` Cloud Function, which owns the key, the
+/// model chain, input limits, crisis safety and per-user quotas.
+/// Public method signatures are unchanged so no screen had to change.
 class GeminiService {
   static final GeminiService instance = GeminiService._internal();
-  
-  static const int _maxHistoryTurns = 4;
-  
-  // 🚨 COST OPTIMIZATION: Max input character length (~150 words) to prevent token stuffing
-  static const int _maxInputLength = 800; 
-
   GeminiService._internal();
 
-  GenerativeModel _getModel(String dialect) {
-    final apiKey = dotenv.env['GEMINI_API_KEY'];
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('CRITICAL: GEMINI_API_KEY not found in .env');
-    }
-    return GenerativeModel(
-      // 🚨 FIX: Upgraded from deprecated gemini-2.5-flash to the active gemini-3.5-flash model
-      model: 'gemini-3.5-flash',
-      apiKey: apiKey,
-      systemInstruction: Content.system(_getSystemPrompt(dialect)),
-      generationConfig: GenerationConfig(
-        temperature: 0.1,
-        maxOutputTokens: 600,
-        responseMimeType: 'application/json',
-      ),
-    );
-  }
-
-  String _getSystemPrompt(String dialect) {
-    return '''
-    You are NeuroCalm, a CBT assistant.
-    Rules: Validate emotions, be very brief, no medical diagnoses. Reply in $dialect. JSON keys must be English.
-    
-    CRITICAL INSTRUCTION: You must output ONLY raw, valid JSON.
-    DO NOT output markdown blocks (like ```json).
-    
-    {
-      "reply": "Empathetic localized response",
-      "slm_features": {
-        "detected_emotion": "anxiety|sadness|anger|neutral",
-        "cognitive_distortion": "catastrophizing|black_and_white_thinking|none",
-        "urgency_level": "low|medium|high"
-      }
-    }''';
-  }
+  static const int _maxHistoryTurns = 4;
+  static const int _maxInputLength = 1200;
+  // Simple per-session cache so repeated identical inputs cost nothing.
+  final Map<String, Map<String, dynamic>> _cache = {};
 
   Future<Map<String, dynamic>> generateTextReply(
     String userMessage,
     List<Map<String, String>> history,
-    AppLanguage language
+    AppLanguage language,
   ) async {
-    // ZERO-COST INTERCEPTOR
-    final normalizedMsg = userMessage.trim().toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
-    if (normalizedMsg == 'hi' || normalizedMsg == 'hello') {
-      return _getFreeFallbackReply("Hello. How are you feeling right now?");
+    final normalized = userMessage.trim().toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
+    if (normalized.isEmpty) {
+      return _fallback("Take your time. What's on your mind right now?");
+    }
+    if (const {'hi', 'hello', 'hey', 'namaste'}.contains(normalized)) {
+      return _fallback('Hello. How are you feeling right now?');
     }
 
-    // 🚨 TOKEN BUDGETING: Hard clip the input string before generation
-    final safeMessage = userMessage.length > _maxInputLength 
-        ? '${userMessage.substring(0, _maxInputLength)}...' 
-        : userMessage;
+    if (CrisisDetector.isCrisis(userMessage)) {
+      // Safety first, and it works offline: no model call needed.
+      CrisisSupport.show();
+      return {
+        ..._fallback("I'm really glad you told me. You deserve support from a real person right now — "
+            "please reach out to one of the helplines on screen or someone you trust."),
+        'crisis': true,
+      };
+    }
 
+    final safeMessage = userMessage.length > _maxInputLength
+        ? userMessage.substring(0, _maxInputLength)
+        : userMessage;
     final recentHistory = history.length > _maxHistoryTurns
         ? history.sublist(history.length - _maxHistoryTurns)
         : history;
 
-    final prompt = [
-      ...recentHistory.map((h) => Content(h['role'] == 'user' ? 'user' : 'model', [TextPart(h['content'] ?? '')])),
-      Content.text(safeMessage)
-    ];
+    final cacheKey = '${language.displayName}|$normalized';
+    if (recentHistory.isEmpty && _cache.containsKey(cacheKey)) {
+      return Map<String, dynamic>.from(_cache[cacheKey]!);
+    }
 
     try {
-      final model = _getModel(language.displayName);
-      final response = await model.generateContent(prompt);
-      return _parseResponse(response.text);
+      final result = await SecureAIGateway().generateTherapyReply(
+        message: safeMessage,
+        history: recentHistory,
+        language: language.displayName,
+      );
+      final normalizedResult = _normalize(result);
+      if (recentHistory.isEmpty && normalizedResult['crisis'] != true) {
+        if (_cache.length > 30) _cache.remove(_cache.keys.first);
+        _cache[cacheKey] = normalizedResult;
+      }
+      return normalizedResult;
+    } on OutOfReflectionsException {
+      rethrow; // The out-of-reflections sheet is already on screen.
     } catch (e) {
-      debugPrint('[Gemini Text Error]: $e');
-      rethrow;
+      debugPrint('[AI Text Error]: $e');
+      return _offlineFallback();
     }
   }
 
   Future<Map<String, dynamic>> generateAudioReply(String audioFilePath, AppLanguage language) async {
+    final audioFile = File(audioFilePath);
     try {
-      final audioFile = File(audioFilePath);
-      if (!await audioFile.exists()) throw Exception("Audio file not found.");
-
-      final audioBytes = await audioFile.readAsBytes();
-      final prompt = [
-        Content.multi([
-          DataPart('audio/mp4', audioBytes),
-          TextPart("Transcribe the audio and provide the CBT response. Output ONLY valid JSON."),
-        ])
-      ];
-
-      final model = _getModel(language.displayName);
-      final response = await model.generateContent(prompt);
-      return _parseResponse(response.text);
-    } catch (e) {
-      debugPrint('[Gemini Audio Error]: $e');
+      if (!await audioFile.exists()) throw Exception('Audio file not found.');
+      final bytes = await audioFile.readAsBytes();
+      if (bytes.isEmpty) return _fallback("I couldn't hear anything. Try again a little closer to the mic?");
+      final result = await SecureAIGateway().generateTherapyReply(
+        language: language.displayName,
+        audioBase64: base64Encode(bytes),
+        audioMime: 'audio/mp4',
+      );
+      return _normalize(result);
+    } on OutOfReflectionsException {
       rethrow;
-    }
-  }
-
-  Map<String, dynamic> _parseResponse(String? text) {
-    if (text == null) throw Exception("Empty response");
-    try {
-      String cleanText = text.replaceAll('```json', '').replaceAll('```', '').trim();
-      final RegExp jsonRegex = RegExp(r'\{[\s\S]*\}');
-      final match = jsonRegex.firstMatch(cleanText);
-      if (match != null) return jsonDecode(match.group(0)!);
-      throw const FormatException("No JSON structure found.");
     } catch (e) {
-      return _getFreeFallbackReply("I am here for you. Please tell me more.");
+      debugPrint('[AI Audio Error]: $e');
+      return _offlineFallback();
+    } finally {
+      // Privacy: never leave voice recordings lying around on disk.
+      try {
+        if (await audioFile.exists()) await audioFile.delete();
+      } catch (_) {}
     }
   }
 
-  Map<String, dynamic> _getFreeFallbackReply(String replyText) {
+  Map<String, dynamic> _normalize(Map<String, dynamic> data) {
+    final features = data['slm_features'] is Map
+        ? Map<String, dynamic>.from(data['slm_features'] as Map)
+        : <String, dynamic>{};
     return {
-      "reply": replyText,
-      "slm_features": {
-        "detected_emotion": "neutral",
-        "cognitive_distortion": "none",
-        "urgency_level": "low"
-      }
+      'reply': (data['reply'] as String?)?.trim().isNotEmpty == true
+          ? data['reply']
+          : 'I am here for you. Please tell me more.',
+      'slm_features': {
+        'detected_emotion': features['detected_emotion'] ?? 'neutral',
+        'cognitive_distortion': features['cognitive_distortion'] ?? 'none',
+        'urgency_level': features['urgency_level'] ?? 'low',
+      },
+      if (data['transcript'] != null) 'transcript': data['transcript'],
+      if (data['crisis'] == true) 'crisis': true,
+    };
+  }
+
+  /// Works with zero network: a real CBT micro-exercise, not an error.
+  Map<String, dynamic> _offlineFallback() => _fallback(
+        "I couldn't reach the AI just now, but you can still do this: name the thought in one line, "
+        "rate how true it feels (0–10), then write one piece of evidence against it. "
+        "Your entry is saved on this device.",
+      );
+
+  Map<String, dynamic> _fallback(String replyText) {
+    return {
+      'reply': replyText,
+      'slm_features': {
+        'detected_emotion': 'neutral',
+        'cognitive_distortion': 'none',
+        'urgency_level': 'low',
+      },
     };
   }
 }

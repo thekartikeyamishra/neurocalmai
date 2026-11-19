@@ -1,0 +1,121 @@
+rules_version = '2';
+
+// NeuroCalm AI — production Firestore rules.
+// Principle: money, quotas and entitlements are written ONLY by Cloud Functions
+// (Admin SDK bypasses these rules). Clients can read their own data and write
+// only harmless, owner-scoped documents.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function smallDoc() { return request.resource.data.size() < 60; }
+
+    // Fields only the server may set on a user profile.
+    function protectedUserKeys() {
+      return ['isPremium', 'premiumProduct', 'premiumUpdatedAt', 'lifetime', 'willRenew',
+              'walletBalance', 'premium_insight_credits', 'referralCode', 'referredBy',
+              'referralCodeUsed', 'referralPendingFor', 'referralMonth', 'referralMonthCount',
+              'totalReferrals', 'successfulReferrals', 'status', 'flaggedAt',
+              'affiliate_partner_id'];
+    }
+
+    // ---------------- Money & metering: read-only for the owner -------------
+    match /wallets/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+      match /ledger/{entry} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+    match /usage/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+
+    // ---------------- User profile -----------------------------------------
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && smallDoc()
+        && !request.resource.data.keys().hasAny(protectedUserKeys());
+      allow update: if isOwner(uid) && smallDoc()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserKeys());
+      allow delete: if false;
+
+      match /blocked_users/{blockedId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /journals/{entryId} {
+        allow read, delete: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+
+    // ---------------- Legacy cloud journals --------------------------------
+    // New app versions keep journals on-device and migrate old entries off
+    // the cloud. Writes stay allowed for the owner only so older installed
+    // versions don't break; tighten to `false` once min_supported_build >= 8.
+    match /journals/{entryId} {
+      allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid && smallDoc();
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid && smallDoc();
+    }
+
+    // ---------------- Consent ledger ---------------------------------------
+    match /legal_consents/{uid} {
+      allow read, create, update: if isOwner(uid) && smallDoc();
+      allow delete: if false;
+    }
+
+    // ---------------- Offline circles waitlist -----------------------------
+    match /offline_waitlist/{uid} {
+      allow read, create, update, delete: if isOwner(uid) && smallDoc();
+    }
+
+    // ---------------- Community (UGC) --------------------------------------
+    match /communities/{communityId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && smallDoc()
+        && request.resource.data.creatorId == request.auth.uid;
+      allow update: if signedIn() && resource.data.creatorId == request.auth.uid
+        && request.resource.data.creatorId == resource.data.creatorId
+        && request.resource.data.status == resource.data.status;
+      allow delete: if signedIn() && resource.data.creatorId == request.auth.uid;
+
+      match /events/{eventId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && smallDoc()
+          && request.resource.data.hostId == request.auth.uid;
+        // Hosts edit their event; anyone signed in may only join/leave (attendeeIds).
+        allow update: if signedIn() && (
+          (resource.data.hostId == request.auth.uid
+            && request.resource.data.hostId == resource.data.hostId
+            && request.resource.data.status == resource.data.status)
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attendeeIds'])
+        );
+        allow delete: if signedIn() && resource.data.hostId == request.auth.uid;
+      }
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn() && smallDoc()
+        && request.resource.data.reporterId == request.auth.uid;
+      allow read, update, delete: if false;
+    }
+
+    // ---------------- B2B studios ------------------------------------------
+    match /studios/{studioId} {
+      allow read: if signedIn() && resource.data.managerUid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ---------------- Server-only collections ------------------------------
+    // adClaims, ssv, rcEvents, referralCodes, referral_codes, redeemed_devices,
+    // slm_telemetry_lake and anything else not listed above are denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

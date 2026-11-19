@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
+import '../constants/monetization_constants.dart';
 import '../services/wallet_service.dart';
 import '../theme/app_tokens.dart';
 import '../../features/monetization/services/admob_service.dart';
@@ -26,7 +27,12 @@ class MonetizationCircuitBreaker {
       final purchaseResult = await Purchases.purchasePackage(package);
       final customerInfo = purchaseResult.customerInfo;
       
-      if (customerInfo.entitlements.all["premium"]?.isActive == true) {
+      // FIX: entitlement id must match RevenueCat ('NeuroCalm AI Pro'); the
+      // old hard-coded "premium" meant paid users never got unlocked here.
+      final ents = customerInfo.entitlements;
+      final active = ents.all[MonetizationConstants.entitlementPremium]?.isActive == true ||
+          ents.active.isNotEmpty;
+      if (active) {
         debugPrint('💰 [Purchase Success]: Subscription activated.');
         onSuccess();
       }
@@ -35,10 +41,11 @@ class MonetizationCircuitBreaker {
       final errorCode = PurchasesErrorHelper.getErrorCode(e);
       
       if (errorCode == PurchasesErrorCode.purchaseCancelledError) {
+        // Respect the user's choice: no guilt sheet after a deliberate cancel.
         debugPrint('⚠️ [Purchase Canceled]: User backed out of the payment sheet.');
-      } else {
-        debugPrint('🚨 [Purchase Failed]: Network drop, declined card, or store error. Code: $errorCode');
+        return;
       }
+      debugPrint('🚨 [Purchase Failed]: Network drop, declined card, or store error. Code: $errorCode');
 
       // 3. Pivot to the Ad Economy to save the monetization
       if (context.mounted) {
@@ -146,11 +153,10 @@ class MonetizationCircuitBreaker {
                     
                     // Trigger the AdMob Service to grant wallet credits
                     AdMobService.instance.showRewardedAd(
-                      onEarnedReward: () async {
-                        // Securely sync the rewarded credits
-                        await WalletService().addCreditsFromAd();
-                        // Unlock the immediate session or UI state
-                        onGranted(); 
+                      onEarnedReward: onGranted,
+                      onEarnedRewardWithNonce: (nonce) {
+                        // Server-verified credit grant (capped, idempotent).
+                        WalletService().claimAdReward(nonce);
                       },
                       onAdClosed: () {
                         // Handled internally by AdMobService, UI resets automatically

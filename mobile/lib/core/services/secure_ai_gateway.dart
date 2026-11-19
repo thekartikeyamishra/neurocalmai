@@ -4,7 +4,17 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import 'remote_config_service.dart';
+import '../safety/crisis_support_sheet.dart';
+import '../../features/monetization/widgets/out_of_reflections_sheet.dart';
+import 'wallet_service.dart';
+
+/// Thrown when the free daily allowance and credits are exhausted.
+class OutOfReflectionsException implements Exception {
+  final String message;
+  OutOfReflectionsException([this.message = 'Your free reflections for today are used up.']);
+  @override
+  String toString() => message;
+}
 
 /// A production-ready gateway for all AI interactions.
 /// Routes LLM requests through Firebase Cloud Functions to ensure zero API key
@@ -61,37 +71,68 @@ class SecureAIGateway {
     // Ensure active auth session exists before attempting execution
     await _ensureAuthenticated();
 
-    // 🚨 ARCHITECT FIX: Override deprecated Gemini models from Remote Config.
-    // The gemini-1.5 and gemini-2.0 series have been sunset by Google.
-    // We force an upgrade to the latest stable endpoints (gemini-3.8-flash & gemini-3.5-flash-lite).
-    final String primaryModel = 'gemini-3.8-flash';
-    final String fallbackModel = 'gemini-3.5-flash-lite';
-
+    // Model choice, fallbacks and cost limits now live on the server
+    // (functions/src/ai.ts). The client never names a model, so a retired
+    // model is fixed with a server deploy instead of a Play Store release.
     try {
-      // 1. Primary attempt using the latest 3.8 Flash model
-      return await _executeCbtCallWithRetry(
+      final result = await _executeCbtCallWithRetry(
         cleanInput: cleanInput,
         isVoiceTranscribed: isVoiceTranscribed,
-        modelName: primaryModel,
       );
-    } catch (primaryError) {
-      debugPrint(
-        "⚠️ [AI Gateway]: Primary model ($primaryModel) failed: $primaryError. Attempting fallback ($fallbackModel)...",
-      );
+      if (result['crisis'] == true) CrisisSupport.show();
+      return result;
+    } catch (error) {
+      debugPrint("🚨 [AI Gateway]: CBT reframe failed: $error");
+      _handleGatewayException(error);
+    }
+  }
 
-      // 2. Cascading fallback attempt using the 3.5 Flash-Lite model
-      try {
-        return await _executeCbtCallWithRetry(
-          cleanInput: cleanInput,
-          isVoiceTranscribed: isVoiceTranscribed,
-          modelName: fallbackModel,
-        );
-      } catch (fallbackError) {
-        debugPrint(
-          "🚨 [AI Gateway]: Fallback model ($fallbackModel) also failed: $fallbackError",
-        );
-        _handleGatewayException(fallbackError);
+  /// Conversational reply for journals, chat and voice (metered on server:
+  /// free daily allowance -> credits -> premium). Replaces the old
+  /// client-side Gemini/OpenAI calls whose API keys shipped inside the APK.
+  Future<Map<String, dynamic>> generateTherapyReply({
+    String message = '',
+    List<Map<String, String>> history = const [],
+    String language = 'English',
+    String? audioBase64,
+    String audioMime = 'audio/mp4',
+  }) async {
+    await _ensureAuthenticated();
+    final callable = _functions.httpsCallable(
+      'aiTherapyReply',
+      options: HttpsCallableOptions(timeout: Duration(seconds: audioBase64 != null ? 60 : 30)),
+    );
+    try {
+      final result = await callable.call<dynamic>(<String, dynamic>{
+        'message': message.length > 1200 ? message.substring(0, 1200) : message,
+        'history': history.length > 4 ? history.sublist(history.length - 4) : history,
+        'language': language,
+        if (audioBase64 != null) 'audioBase64': audioBase64,
+        if (audioBase64 != null) 'audioMime': audioMime,
+      });
+      final data = Map<String, dynamic>.from(result.data as Map);
+      WalletService().applyMeterUpdate(
+        freeRemaining: (data['freeRemaining'] as num?)?.toInt(),
+        balance: (data['balance'] as num?)?.toInt(),
+      );
+      if (data['crisis'] == true) CrisisSupport.show();
+      if (data['slm_features'] is Map) {
+        data['slm_features'] = Map<String, dynamic>.from(data['slm_features'] as Map);
       }
+      return data;
+    } on FirebaseFunctionsException catch (e) {
+      final details = e.details;
+      final reason = details is Map ? details['reason'] : null;
+      if (e.code == 'resource-exhausted' && reason == 'credits') {
+        OutOfReflectionsSheet.show();
+        throw OutOfReflectionsException();
+      }
+      if (e.code == 'unauthenticated') {
+        await _ensureAuthenticated(forceRefresh: true);
+      }
+      _handleGatewayException(e);
+    } catch (e) {
+      _handleGatewayException(e);
     }
   }
 
@@ -100,13 +141,11 @@ class SecureAIGateway {
   Future<Map<String, dynamic>> _executeCbtCallWithRetry({
     required String cleanInput,
     required bool isVoiceTranscribed,
-    required String modelName,
   }) async {
     try {
       return await _executeCbtCall(
         cleanInput: cleanInput,
         isVoiceTranscribed: isVoiceTranscribed,
-        modelName: modelName,
       );
     } on FirebaseFunctionsException catch (e) {
       if (e.code == 'unauthenticated') {
@@ -117,7 +156,6 @@ class SecureAIGateway {
         return await _executeCbtCall(
           cleanInput: cleanInput,
           isVoiceTranscribed: isVoiceTranscribed,
-          modelName: modelName,
         );
       }
       rethrow;
@@ -128,7 +166,6 @@ class SecureAIGateway {
   Future<Map<String, dynamic>> _executeCbtCall({
     required String cleanInput,
     required bool isVoiceTranscribed,
-    required String modelName,
   }) async {
     final HttpsCallable callable = _functions.httpsCallable(
       'generateCBTReframe',
@@ -139,7 +176,6 @@ class SecureAIGateway {
     final HttpsCallableResult result = await callable.call(<String, dynamic>{
       'userText': cleanInput,
       'isVoiceTranscribed': isVoiceTranscribed,
-      'model': modelName, 
     });
 
     if (result.data != null) {
@@ -190,8 +226,8 @@ class SecureAIGateway {
             "The service is temporarily offline. Please check your internet connection.",
           );
         case 'internal':
-          // Pass the exact backend exception to the UI for visibility instead of masking it
-          throw Exception(error.message ?? "Failed to generate CBT insight. Please try again.");
+          // Never surface raw backend errors (could leak provider details).
+          throw Exception("Something went wrong on our side. Please try again in a moment.");
         default:
           final msg = error.message ?? "";
           if (msg.contains("NOT_FOUND") || msg.contains("404")) {

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../services/local_journal_service.dart';
 import '../../monetization/screens/insight_reward_screen.dart';
+import '../../monetization/widgets/smart_banner_card.dart';
 
 // 🚨 ARCHITECT FIX: Converted to ConsumerWidget to react instantly to database changes
 class JournalTimelineScreen extends ConsumerWidget {
@@ -74,6 +75,7 @@ class JournalTimelineScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
+      bottomNavigationBar: const SmartBannerCard(),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,

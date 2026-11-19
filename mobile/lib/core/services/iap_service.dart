@@ -29,6 +29,11 @@ class IAPService {
   bool _isPremium = false;
   bool get isPremium => _isPremium;
 
+  // Completes once Purchases.configure() has finished (or failed), so a
+  // login racing with init can't run against an unconfigured SDK — which
+  // left purchases on an anonymous RevenueCat id the webhook can't map.
+  final Completer<void> _configured = Completer<void>();
+
   /// Initializes the RevenueCat SDK based on the current platform.
   /// Call this immediately after Firebase initialization in `main.dart`.
   Future<void> init(String? appUserId) async {
@@ -55,6 +60,7 @@ class IAPService {
       }
 
       await Purchases.configure(configuration);
+      if (!_configured.isCompleted) _configured.complete();
 
       // Listen for changes in customer info (e.g., subscription expires, or purchase made on another device)
       Purchases.addCustomerInfoUpdateListener((customerInfo) {
@@ -66,6 +72,8 @@ class IAPService {
       _updatePremiumStatus(initialInfo);
     } catch (e) {
       debugPrint("🚨 [RevenueCat Initialization Error]: $e");
+    } finally {
+      if (!_configured.isCompleted) _configured.complete();
     }
   }
 
@@ -73,6 +81,7 @@ class IAPService {
   /// Call this when a user signs in via Firebase Auth.
   Future<void> loginUser(String uid) async {
     try {
+      await _configured.future.timeout(const Duration(seconds: 20));
       final logInResult = await Purchases.logIn(uid);
       _updatePremiumStatus(logInResult.customerInfo);
     } catch (e) {
@@ -153,11 +162,12 @@ class IAPService {
 
   /// Evaluates if the premium entitlement is currently active.
   bool _isPremiumStatusActive(CustomerInfo customerInfo) {
-    return customerInfo
-            .entitlements
-            .all[MonetizationConstants.entitlementPremium]
-            ?.isActive ==
-        true;
+    final ents = customerInfo.entitlements;
+    // Primary: the configured entitlement. Fallback: any active entitlement,
+    // so a renamed entitlement in the RevenueCat dashboard can never lock
+    // out a paying user (the single worst churn + refund trigger).
+    return ents.all[MonetizationConstants.entitlementPremium]?.isActive == true ||
+        ents.active.isNotEmpty;
   }
 
   /// Updates the global premium status and broadcasts it to the UI layer.

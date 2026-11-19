@@ -22,7 +22,6 @@
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>audio</string>
-			<string>fetch</string>
 			<string>remote-notification</string>
 		</array>
 
@@ -59,35 +58,44 @@
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
 
-		<!-- Google Sign-In Requirements -->
-		<key>CFBundleURLTypes</key>
-		<array>
-			<dict>
-				<key>CFBundleTypeRole</key>
-				<string>Editor</string>
-				<key>CFBundleURLSchemes</key>
-				<array>
-					<!-- IMPORTANT: Replace this value with the REVERSED_CLIENT_ID found in your ios/Runner/GoogleService-Info.plist -->
-					<string>com.googleusercontent.apps.YOUR-REVERSED-CLIENT-ID-HERE</string>
-				</array>
-			</dict>
-		</array>
+		<!-- Google Sign-In is not offered in the UI (anonymous accounts only), so the
+		     placeholder URL scheme was removed; a placeholder scheme is an App Review flag. -->
 
 		<!-- Hardware Privacy Descriptions -->
 		<key>NSMicrophoneUsageDescription</key>
-		<string>NeuroCalm needs microphone access to process your voice therapy sessions securely. Audio never leaves the device unless synced.</string>
+		<string>NeuroCalm uses the microphone only when you tap to speak. Your recording is sent securely to generate your reflection, is not stored by us, and is deleted from your phone right after.</string>
 		<key>NSCameraUsageDescription</key>
-		<string>NeuroCalm requires camera access for local micro-expression analysis. Images are processed on-device and never saved.</string>
+		<string>NeuroCalm uses the front camera only when you start a mood scan. The image is analysed on your phone and is never saved or uploaded.</string>
+
+		<key>NSSpeechRecognitionUsageDescription</key>
+		<string>NeuroCalm turns your spoken thoughts into text so you can reflect hands-free. This only happens when you tap the microphone.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Choose a photo for a mood scan. The photo is analysed on your phone and never uploaded.</string>
+		<key>NSHealthShareUsageDescription</key>
+		<string>With your permission, NeuroCalm reads sleep and step counts to show how rest and activity relate to your mood. This data stays on your phone.</string>
+		<key>NSHealthUpdateUsageDescription</key>
+		<string>NeuroCalm can save mindful minutes from breathing sessions to Apple Health if you allow it.</string>
+		<key>NSUserTrackingUsageDescription</key>
+		<string>This lets us show you more relevant sponsor messages, which keeps NeuroCalm free. You can say no and still use every feature.</string>
 
 		<!-- Geolocator Privacy Descriptions for Community Hubs -->
 		<key>NSLocationWhenInUseUsageDescription</key>
-		<string>NeuroCalm requires location access to connect you with nearby Grounding Circles. Your precise coordinates are heavily truncated before use to guarantee anonymity.</string>
-		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-		<string>NeuroCalm requires location access to securely verify your presence in local Grounding Circles.</string>
+		<string>Only when you look for nearby Grounding Circles, NeuroCalm uses your approximate city to show groups near you. Your precise location is never stored.</string>
 
 		<!-- Google AdMob Identifier -->
 		<key>GADApplicationIdentifier</key>
 		<string>ca-app-pub-4557897331416844~2962544256</string>
+		<!-- Google's SKAdNetwork id (required for AdMob attribution on iOS 14+).
+		     Add the full partner list from AdMob docs if you enable mediation. -->
+		<key>SKAdNetworkItems</key>
+		<array>
+			<dict>
+				<key>SKAdNetworkIdentifier</key>
+				<string>cstr6suwn9.skadnetwork</string>
+			</dict>
+		</array>
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
 
 		<key>UILaunchStoryboardName</key>
 		<string>LaunchScreen</string>

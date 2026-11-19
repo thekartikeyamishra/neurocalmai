@@ -1,266 +1,193 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import 'remote_config_service.dart';
-
-/// Production-ready singleton service managing the micro-transaction Wallet[cite: 13].
-/// Handles offline caching via FlutterSecureStorage and atomic Firestore transactions[cite: 13]
-/// to ensure session credits are never duplicated, lost, or desynced during race conditions[cite: 13].
+/// Credit wallet — SERVER-AUTHORITATIVE.
+///
+/// Security fix: the old client wrote its own balance to Firestore, so any
+/// user with a proxy could give themselves unlimited credits, and purchased
+/// sachets were credited to a different document than the one the app read.
+/// Now every balance change happens in Cloud Functions (walletSync,
+/// walletSpend, claimAdReward, RevenueCat webhook, AdMob SSV). The client
+/// only reads (real-time) and caches the last known value for instant UI.
 class WalletService {
-  // Singleton instance
   static final WalletService _instance = WalletService._internal();
   factory WalletService() => _instance;
   WalletService._internal() {
-    _loadInitialLocalBalance();
+    _loadCachedBalance();
   }
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  static const String _cacheKey = 'wallet_cached_balance_v3';
 
-  static const String _localBalanceKey = 'local_wallet_balance';
-  static const String _welcomeBonusKey = 'welcome_bonus_granted_v2';
-  
-  // 300 starter credits provides 5-6 full voice/text sessions to establish a habit loop
-  static const int _starterCredits = 300; 
-
-  // Stream subscription for Firestore real-time updates[cite: 13]
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _walletSubscription;
-
-  // Stream controller to broadcast balance changes instantly across the entire UI hierarchy[cite: 13]
+  StreamSubscription<User?>? _authSubscription;
   final StreamController<int> _balanceController = StreamController<int>.broadcast();
   Stream<int> get balanceStream => _balanceController.stream;
 
-  int _currentBalance = _starterCredits;
+  int _currentBalance = 0;
   int get currentBalance => _currentBalance;
 
-  /// Loads the cached balance from secure storage immediately on boot for zero-latency UI rendering[cite: 13].
-  Future<void> _loadInitialLocalBalance() async {
+  int _freeRemaining = 5;
+  int _freeDaily = 5;
+  int _rewardCredits = 2;
+  bool _serverPremium = false;
+  String? _listeningUid;
+
+  /// Free AI reflections left today (server value from last sync/reply).
+  int get freeRemaining => _freeRemaining;
+  int get freeDaily => _freeDaily;
+  int get rewardCredits => _rewardCredits;
+  bool get isServerPremium => _serverPremium;
+
+  Future<void> _loadCachedBalance() async {
     try {
-      final bonusApplied = await _secureStorage.read(key: _welcomeBonusKey);
-      final localBalStr = await _secureStorage.read(key: _localBalanceKey);
-
-      if (bonusApplied == null) {
-        // First launch or migration: Grant the starter reserve
-        _currentBalance = _starterCredits;
-        await _secureStorage.write(key: _localBalanceKey, value: _starterCredits.toString());
-        await _secureStorage.write(key: _welcomeBonusKey, value: 'true');
-      } else if (localBalStr != null) {
-        _currentBalance = int.tryParse(localBalStr) ?? _starterCredits;
-      } else {
-        _currentBalance = _starterCredits;
-        await _secureStorage.write(key: _localBalanceKey, value: _starterCredits.toString());
-      }
-
-      if (!_balanceController.isClosed) {
-        _balanceController.add(_currentBalance);
-      }
+      final cached = await _secureStorage.read(key: _cacheKey);
+      final value = int.tryParse(cached ?? '');
+      if (value != null) _emit(value);
     } catch (e) {
-      debugPrint('⚠️ [WalletService Init Cache Warning]: $e');
+      debugPrint('⚠️ [Wallet]: cache read failed: $e');
     }
   }
 
-  /// Initializes the wallet service, syncing the local secure cache with Firestore[cite: 13].
-  /// Call this when a user logs in or after Firebase Auth is initialized[cite: 13].
+  void _emit(int balance) {
+    if (balance < 0) balance = 0;
+    _currentBalance = balance;
+    if (!_balanceController.isClosed) _balanceController.add(balance);
+    _secureStorage.write(key: _cacheKey, value: '$balance').catchError((Object _) {});
+  }
+
+  /// Starts the real-time listener and syncs the economy snapshot.
+  /// Safe to call many times; re-binds automatically when the user changes.
   Future<void> init() async {
-    final user = _auth.currentUser;
-    if (user == null) {
-      await _loadInitialLocalBalance();
-      return;
-    }
-
-    // Cancel any existing subscription before creating a new one[cite: 13]
-    await _walletSubscription?.cancel();
-
-    // 1. Read immediate cached value[cite: 13]
-    await _loadInitialLocalBalance();
-
-    // 2. Setup real-time listener to Firestore (Remote Source of Truth)[cite: 13]
-    try {
-      _walletSubscription = _firestore
-          .collection('wallets')
-          .doc(user.uid)
-          .snapshots()
-          .listen(
-        (docSnap) async {
-          if (docSnap.exists && docSnap.data() != null) {
-            final serverBalance = docSnap.data()!['balance'] as int? ?? _starterCredits;
-            await _updateLocalBalance(serverBalance);
-          } else {
-            // Document does not exist yet; initialize with default starter credits[cite: 13]
-            await _initializeWallet(user.uid);
-          }
-        },
-        onError: (e) {
-          debugPrint('⚠️ [Wallet Sync Error]: $e (Operating in Offline Cache Mode)');
-        },
-      );
-    } catch (e) {
-      debugPrint('🚨 [Wallet Subscription Error]: $e');
-    }
-  }
-
-  /// Creates a new wallet document in Firestore with baseline starter credits[cite: 13].
-  Future<void> _initializeWallet(String uid) async {
-    try {
-      await _firestore.collection('wallets').doc(uid).set({
-        'balance': _starterCredits,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      await _updateLocalBalance(_starterCredits);
-    } catch (e) {
-      debugPrint('🚨 [Wallet Initialization Error]: $e');
-    }
-  }
-
-  /// Updates local state, commits to encrypted storage, and broadcasts to listeners[cite: 13].
-  Future<void> _updateLocalBalance(int newBalance) async {
-    if (_currentBalance != newBalance) {
-      _currentBalance = newBalance;
-      if (!_balanceController.isClosed) {
-        _balanceController.add(_currentBalance);
+    _authSubscription ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null && user.uid != _listeningUid) {
+        _bind(user.uid);
+        sync();
       }
-      try {
-        await _secureStorage.write(key: _localBalanceKey, value: newBalance.toString());
-      } catch (e) {
-        debugPrint('⚠️ [Wallet Secure Storage Write Warning]: $e');
-      }
-      debugPrint('💰 [Wallet Balance Updated]: $_currentBalance Credits');
-    }
+    });
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    _bind(user.uid);
+    unawaited(sync());
   }
 
-  /// Atomically adds credits to the user's wallet[cite: 13].
-  /// Called after a successful RevenueCat Sachet purchase or a completed Rewarded Ad[cite: 13].
-  Future<void> addCredits(int amount) async {
-    if (amount <= 0) return;
-    final user = _auth.currentUser;
-
-    // Offline / Anonymous guest fallback[cite: 13]
-    if (user == null) {
-      final updated = _currentBalance + amount;
-      await _updateLocalBalance(updated);
-      return;
-    }
-
-    final docRef = _firestore.collection('wallets').doc(user.uid);
-
-    try {
-      await _firestore.runTransaction((transaction) async {
-        final snapshot = await transaction.get(docRef);
-
-        if (!snapshot.exists) {
-          transaction.set(docRef, {
-            'balance': _currentBalance + amount,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-        } else {
-          final currentServerBalance = snapshot.data()?['balance'] as int? ?? 0;
-          transaction.update(docRef, {
-            'balance': currentServerBalance + amount,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+  void _bind(String uid) {
+    if (_listeningUid == uid && _walletSubscription != null) return;
+    _walletSubscription?.cancel();
+    _listeningUid = uid;
+    _walletSubscription = FirebaseFirestore.instance
+        .collection('wallets')
+        .doc(uid)
+        .snapshots()
+        .listen(
+      (snap) {
+        final data = snap.data();
+        if (data != null && data['balance'] is num) {
+          _emit((data['balance'] as num).toInt());
         }
-      });
-    } catch (e) {
-      debugPrint('🚨 [Failed to add credits via Firestore transaction]: $e');
-      // Optimistic local update as failsafe[cite: 13]
-      final fallback = _currentBalance + amount;
-      await _updateLocalBalance(fallback);
-    }
+      },
+      onError: (Object e) => debugPrint('⚠️ [Wallet]: listener error (offline cache in use): $e'),
+    );
   }
 
-  /// Securely grants credits when a user completes a rewarded ad.
-  /// Queries Firebase Remote Config for the reward payout (defaulting to 50 credits).
-  Future<int> addCreditsFromAd({int? customAmount}) async {
-    int payout = customAmount ?? 50;
+  /// Creates the wallet server-side if needed and refreshes allowance info.
+  Future<void> sync() async {
+    if (FirebaseAuth.instance.currentUser == null) return;
     try {
-      payout = customAmount ?? RemoteConfigService().rewardedAdCreditPayout;
-      if (payout <= 0) payout = 50;
-    } catch (_) {
-      payout = customAmount ?? 50;
+      final res = await _functions
+          .httpsCallable('walletSync', options: HttpsCallableOptions(timeout: const Duration(seconds: 15)))
+          .call<dynamic>();
+      final data = Map<String, dynamic>.from(res.data as Map);
+      _applyEconomy(data);
+      if (data['balance'] is num) _emit((data['balance'] as num).toInt());
+    } catch (e) {
+      debugPrint('⚠️ [Wallet]: sync failed (will retry next launch): $e');
     }
-
-    await addCredits(payout);
-    debugPrint('🎁 [WalletService]: Rewarded ad payout granted (+$payout credits).');
-    return payout;
   }
 
-  /// Atomically deducts credits for premium feature usage (CBT reframes, somatic sessions, etc.)[cite: 13].
-  /// Validates sufficient balance before deducting to prevent negative credit balances[cite: 13].
-  Future<bool> deductCredits(int amount) async {
+  void _applyEconomy(Map<String, dynamic> data) {
+    if (data['freeRemaining'] is num) _freeRemaining = (data['freeRemaining'] as num).toInt();
+    if (data['freeDaily'] is num) _freeDaily = (data['freeDaily'] as num).toInt();
+    if (data['rewardCredits'] is num) _rewardCredits = (data['rewardCredits'] as num).toInt();
+    if (data['isPremium'] is bool) _serverPremium = data['isPremium'] as bool;
+  }
+
+  /// Called by the AI gateway after each metered reply.
+  void applyMeterUpdate({int? freeRemaining, int? balance}) {
+    if (freeRemaining != null) _freeRemaining = freeRemaining;
+    if (balance != null) _emit(balance);
+  }
+
+  static String _requestId() {
+    final r = Random.secure();
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return List.generate(20, (_) => chars[r.nextInt(chars.length)]).join();
+  }
+
+  /// Spends credits for a premium tool. Returns false when the balance is
+  /// insufficient or the server can't be reached (tools need the cloud anyway).
+  Future<bool> deductCredits(int amount, {String reason = 'tool'}) async {
     if (amount <= 0) return true;
-
-    // Fast-fail check against local memory cache[cite: 13]
-    if (_currentBalance < amount) {
-      return false;
-    }
-
-    final user = _auth.currentUser;
-
-    // Offline / Anonymous guest fallback[cite: 13]
-    if (user == null) {
-      final updated = _currentBalance - amount;
-      await _updateLocalBalance(updated);
-      return true;
-    }
-
-    final docRef = _firestore.collection('wallets').doc(user.uid);
-    bool success = false;
-
+    if (FirebaseAuth.instance.currentUser == null) return false;
     try {
-      await _firestore.runTransaction((transaction) async {
-        final snapshot = await transaction.get(docRef);
-
-        if (!snapshot.exists) {
-          if (_currentBalance >= amount) {
-            transaction.set(docRef, {
-              'balance': _currentBalance - amount,
-              'updatedAt': FieldValue.serverTimestamp(),
-            });
-            success = true;
-          } else {
-            success = false;
-          }
-          return;
-        }
-
-        final currentServerBalance = snapshot.data()?['balance'] as int? ?? 0;
-
-        if (currentServerBalance >= amount) {
-          transaction.update(docRef, {
-            'balance': currentServerBalance - amount,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          success = true;
-        } else {
-          success = false; // Insufficient balance on server[cite: 13]
-        }
-      });
-
-      if (success) {
-        // Optimistically deduct locally while stream syncs[cite: 13]
-        await _updateLocalBalance(_currentBalance - amount);
-      }
-      return success;
+      final res = await _functions
+          .httpsCallable('walletSpend', options: HttpsCallableOptions(timeout: const Duration(seconds: 15)))
+          .call<dynamic>({'amount': amount, 'requestId': _requestId(), 'reason': reason});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      if (data['balance'] is num) _emit((data['balance'] as num).toInt());
+      return data['ok'] == true;
     } catch (e) {
-      debugPrint('🚨 [Failed to deduct credits via transaction]: $e');
-      // Fallback: If network failed but user had local credits, allow session and deduct locally[cite: 13]
-      if (_currentBalance >= amount) {
-        await _updateLocalBalance(_currentBalance - amount);
-        return true;
-      }
+      debugPrint('🚨 [Wallet]: spend failed: $e');
       return false;
     }
   }
 
-  /// Cancels subscriptions and disposes the stream controller[cite: 13].
+  /// Claims credits for a completed rewarded ad. Returns credits granted.
+  Future<int> claimAdReward(String nonce) async {
+    try {
+      final res = await _functions
+          .httpsCallable('claimAdReward', options: HttpsCallableOptions(timeout: const Duration(seconds: 15)))
+          .call<dynamic>({'nonce': nonce});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      if (data['balance'] is num) _emit((data['balance'] as num).toInt());
+      if (data['credits'] is num) _rewardCredits = (data['credits'] as num).toInt();
+      if (data['credited'] == true) return _rewardCredits;
+      if (data['pending'] == true) return _rewardCredits; // arrives via SSV
+      return 0;
+    } catch (e) {
+      debugPrint('🚨 [Wallet]: ad reward claim failed: $e');
+      return 0;
+    }
+  }
+
+  /// Deprecated: credits can no longer be added from the client. Purchases
+  /// are credited by the RevenueCat webhook; this only refreshes the state.
+  Future<void> addCredits(int amount) => sync();
+
+  /// Deprecated shim kept for older call sites; prefer [claimAdReward].
+  Future<int> addCreditsFromAd({int? customAmount}) async {
+    final granted = await claimAdReward(AdNonce.generate());
+    return granted;
+  }
+
   void dispose() {
     _walletSubscription?.cancel();
+    _authSubscription?.cancel();
     _balanceController.close();
+  }
+}
+
+/// Small helper so legacy call sites can create a reward nonce.
+class AdNonce {
+  static String generate() {
+    final r = Random.secure();
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    return List.generate(24, (_) => chars[r.nextInt(chars.length)]).join();
   }
 }

@@ -87,25 +87,30 @@ class _WalletTopUpDialogState extends State<WalletTopUpDialog> {
       if (!mounted) return;
       setState(() => _isProcessing = false);
 
-      // Since we just purchased it, we proceed to add credits. 
-      // (In a heavily secure app, you might rely on webhooks, but this is sufficient for client-side unlocking)
+      // FIX: credits are granted ONLY by the server (RevenueCat webhook ->
+      // wallets/{uid}). The old client-side add credited a different path
+      // and was trivially forgeable. The wallet listener updates the UI
+      // within seconds; sync() nudges it.
       final creditsToAdd = _getCreditsForPackage(_selectedPack!.storeProduct.identifier);
-      
-      if (creditsToAdd > 0) {
-        await _walletService.addCredits(creditsToAdd);
-        
-        if (mounted) {
-          Navigator.pop(context); // Close the dialog
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("Successfully added $creditsToAdd credits to your wallet!"),
-              backgroundColor: primarySage,
-            ),
-          );
-        }
-      } else {
-         throw Exception("Invalid package configuration.");
+      final before = _walletService.currentBalance;
+      await _walletService.sync();
+
+      if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
+        Navigator.pop(context); // Close the dialog
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(creditsToAdd > 0
+                ? "Payment successful! $creditsToAdd credits are being added to your wallet."
+                : "Payment successful!"),
+            backgroundColor: primarySage,
+          ),
+        );
       }
+      // Safety net: re-sync shortly after in case the webhook was slow.
+      Future.delayed(const Duration(seconds: 8), () async {
+        if (_walletService.currentBalance <= before) await _walletService.sync();
+      });
 
     } catch (e) {
       if (!mounted) return;

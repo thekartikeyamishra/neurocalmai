@@ -2,8 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../services/admob_service.dart';
 
+/// Native ad styled to the NeuroCalm surface, clearly labelled "Sponsored"
+/// (policy requirement, and honest labelling protects trust/retention).
+/// Renders nothing for premium users, during the ad-free first session, or
+/// when no ad is available — never a blank box.
 class NativeAdCard extends StatefulWidget {
-  const NativeAdCard({super.key});
+  final bool compact;
+  const NativeAdCard({super.key, this.compact = false});
 
   @override
   State<NativeAdCard> createState() => _NativeAdCardState();
@@ -12,83 +17,109 @@ class NativeAdCard extends StatefulWidget {
 class _NativeAdCardState extends State<NativeAdCard> {
   NativeAd? _nativeAd;
   bool _isAdLoaded = false;
+  int _attempts = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadNativeAd();
+    if (AdMobService.instance.canServeNative) {
+      _loadNativeAd();
+    } else {
+      AdMobService.instance.sdkReadyNotifier.addListener(_onSdkReady);
+    }
+  }
+
+  void _onSdkReady() {
+    if (!mounted || _nativeAd != null) return;
+    if (AdMobService.instance.canServeNative) {
+      AdMobService.instance.sdkReadyNotifier.removeListener(_onSdkReady);
+      _loadNativeAd();
+    }
   }
 
   void _loadNativeAd() {
-    _nativeAd = NativeAd(
+    if (!mounted) return;
+    _attempts++;
+    final ad = NativeAd(
       adUnitId: AdMobService.instance.nativeAdUnitId,
-      // Seamlessly camouflage the ad to match the NeuroCalm Theme
       nativeTemplateStyle: NativeTemplateStyle(
-        templateType: TemplateType.medium,
-        mainBackgroundColor: const Color(0xFFF7F9F9), // App surface color
-        cornerRadius: 24.0,
+        templateType: widget.compact ? TemplateType.small : TemplateType.medium,
+        mainBackgroundColor: const Color(0xFFFFFFFF),
+        cornerRadius: 20.0,
         callToActionTextStyle: NativeTemplateTextStyle(
           textColor: Colors.white,
-          backgroundColor: const Color(0xFF2A5C5A), // Primary Teal
+          backgroundColor: const Color(0xFF2F5244),
           style: NativeTemplateFontStyle.bold,
-          size: 16.0,
+          size: 15.0,
         ),
         primaryTextStyle: NativeTemplateTextStyle(
-          textColor: const Color(0xFF2A5C5A),
+          textColor: const Color(0xFF1E293B),
           style: NativeTemplateFontStyle.bold,
-          size: 16.0,
+          size: 15.0,
         ),
         secondaryTextStyle: NativeTemplateTextStyle(
-          textColor: const Color(0xFF666666),
+          textColor: const Color(0xFF64748B),
           style: NativeTemplateFontStyle.normal,
-          size: 14.0,
+          size: 13.0,
         ),
       ),
       listener: NativeAdListener(
         onAdLoaded: (ad) {
-          setState(() {
-            _isAdLoaded = true;
-          });
+          if (!mounted) return; // dispose() already released it
+          setState(() => _isAdLoaded = true);
         },
         onAdFailedToLoad: (ad, error) {
-          debugPrint('[Native Ad Error]: Failed to load: $error');
+          if (!mounted) return; // dispose() already released it
           ad.dispose();
+          if (_nativeAd == ad) _nativeAd = null;
+          if (_attempts < 2) {
+            Future.delayed(const Duration(seconds: 20), _loadNativeAd);
+          }
         },
       ),
       request: const AdRequest(),
-    )..load();
+    );
+    _nativeAd = ad;
+    ad.load();
   }
 
   @override
   void dispose() {
-    _nativeAd?.dispose(); // Strict memory leak prevention
+    AdMobService.instance.sdkReadyNotifier.removeListener(_onSdkReady);
+    _nativeAd?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isAdLoaded || _nativeAd == null) {
-      return const SizedBox.shrink(); // Takes up zero space if ad fails/is loading
-    }
+    final ad = _nativeAd;
+    if (!_isAdLoaded || ad == null) return const SizedBox.shrink();
 
     return Container(
-      margin: const EdgeInsets.only(top: 24, bottom: 16),
+      margin: const EdgeInsets.only(top: 16, bottom: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F9F9),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04), 
-            blurRadius: 10, 
-            offset: const Offset(0, 4)
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0x142F5244)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Text(
+              'Sponsored',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.4),
+            ),
+          ),
+          SizedBox(
+            height: widget.compact ? 110 : 310,
+            width: double.infinity,
+            child: AdWidget(ad: ad),
           ),
         ],
       ),
-      // Constrain height as required by Google Mobile Ads Native Medium Template
-      height: 320, 
-      width: double.infinity,
-      clipBehavior: Clip.antiAlias,
-      child: AdWidget(ad: _nativeAd!),
     );
   }
 }

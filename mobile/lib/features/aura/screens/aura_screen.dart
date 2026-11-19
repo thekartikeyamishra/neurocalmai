@@ -110,9 +110,9 @@ class _AuraScreenState extends ConsumerState<AuraScreen> with TickerProviderStat
     final String shareText = 
       "My current emotional aura is resonating with ${widget.primaryEmotion.toUpperCase()}.\n\n"
       "\"$_aiResponse\"\n\n"
-      "Scan your own aura privately with NeuroCalm AI: https://neurocalm.ai/aura";
+      "Scan your own aura privately with NeuroCalm AI: https://play.google.com/store/apps/details?id=com.kartikeyamishra.mobile";
       
-    Share.share(shareText, subject: 'My NeuroCalm Aura');
+    SharePlus.instance.share(ShareParams(text: shareText, subject: 'My NeuroCalm Aura'));
   }
 
   @override

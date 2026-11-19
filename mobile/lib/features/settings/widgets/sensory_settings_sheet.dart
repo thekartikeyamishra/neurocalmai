@@ -37,7 +37,7 @@ class SensorySettingsSheet extends ConsumerWidget {
           SwitchListTile.adaptive(
             title: const Text('Voice Guidance', style: TextStyle(fontWeight: FontWeight.w600)),
             subtitle: const Text('Read instructions aloud for eyes-closed use.'),
-            activeColor: theme.colorScheme.primary,
+            activeThumbColor: theme.colorScheme.primary,
             value: sensoryState.voiceGuidanceEnabled,
             onChanged: (val) {
               if (sensoryState.hapticsEnabled) HapticFeedback.lightImpact();
@@ -48,7 +48,7 @@ class SensorySettingsSheet extends ConsumerWidget {
           SwitchListTile.adaptive(
             title: const Text('Haptic Grounding', style: TextStyle(fontWeight: FontWeight.w600)),
             subtitle: const Text('Physical vibrations during breathing exercises.'),
-            activeColor: theme.colorScheme.primary,
+            activeThumbColor: theme.colorScheme.primary,
             value: sensoryState.hapticsEnabled,
             onChanged: (val) {
               if (val) HapticFeedback.lightImpact();

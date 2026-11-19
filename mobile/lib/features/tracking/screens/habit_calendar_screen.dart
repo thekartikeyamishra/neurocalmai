@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../monetization/services/admob_service.dart';
+import '../../monetization/widgets/smart_banner_card.dart';
 import '../../monetization/services/subscription_service.dart'; 
 import '../providers/streak_provider.dart';
 
@@ -55,7 +56,7 @@ class _HabitCalendarScreenState extends ConsumerState<HabitCalendarScreen> {
     
     final isPremium = ref.read(subscriptionProvider).isPremium;
     if (!isPremium) {
-      AdMobService.instance.showInterstitialAdIfAppropriate();
+      AdMobService.instance.showInterstitialAdIfAppropriate(placement: 'calendar_exit');
     }
     
     Navigator.pop(context);
@@ -75,6 +76,7 @@ class _HabitCalendarScreenState extends ConsumerState<HabitCalendarScreen> {
       },
       child: Scaffold(
         backgroundColor: theme.colorScheme.surface,
+        bottomNavigationBar: const SmartBannerCard(),
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,

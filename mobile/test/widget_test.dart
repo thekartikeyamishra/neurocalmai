@@ -1,27 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// FIXED: Using a relative import guarantees the compiler finds your main file 
-// regardless of what the package name is set to in pubspec.yaml.
-import '../lib/main.dart'; 
+import 'package:Neurocalm/core/safety/crisis_detector.dart';
+import 'package:Neurocalm/features/onboarding/presentation/first_win_screen.dart';
 
 void main() {
-  testWidgets('NeuroCalmApp Welcome Screen smoke test', (WidgetTester tester) async {
-    // 1. Build our app and trigger a frame.
-    // CRITICAL: We must wrap NeuroCalmApp in ProviderScope because our app uses Riverpod.
-    await tester.pumpWidget(const ProviderScope(child: NeuroCalmApp()));
+  group('CrisisDetector', () {
+    test('flags explicit risk phrases (EN + Hinglish + Hindi)', () {
+      for (final t in [
+        'I want to kill myself',
+        'thinking about suicide',
+        'I just want to end my life',
+        "I don't want to live anymore",
+        'mujhe marna chahta hu',
+        'मैं आत्महत्या के बारे में सोच रहा हूँ',
+      ]) {
+        expect(CrisisDetector.isCrisis(t), isTrue, reason: t);
+      }
+    });
 
-    // Let the entry animations (fade/slide) settle
-    await tester.pumpAndSettle();
+    test('does not flag everyday stress language', () {
+      for (final t in [
+        "I'm going to fail my exam",
+        'this deadline is killing me',
+        'I want to end this meeting early',
+        'my life is busy',
+      ]) {
+        expect(CrisisDetector.isCrisis(t), isFalse, reason: t);
+      }
+    });
+  });
 
-    // 2. Verify that our WelcomeScreen renders correctly by looking for the actual text we wrote.
-    expect(find.text('Find your center.'), findsOneWidget);
-    expect(find.text('Begin Session'), findsOneWidget);
+  testWidgets('First-win screen: CTA enabled only after picking a worry', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: FirstWinScreen()));
+    expect(find.text("What's weighing on you right now?"), findsOneWidget);
 
-    // 3. Verify that the old default counter app ghost is gone.
-    expect(find.text('0'), findsNothing);
-    // FIXED: The correct method is 'byIcon', not 'icon'.
-    expect(find.byIcon(Icons.add), findsNothing);
+    final cta = find.widgetWithText(ElevatedButton, 'Untangle this thought');
+    expect(tester.widget<ElevatedButton>(cta).onPressed, isNull);
+
+    await tester.tap(find.text('Overthinking'));
+    await tester.pump();
+    expect(tester.widget<ElevatedButton>(cta).onPressed, isNotNull);
   });
 }

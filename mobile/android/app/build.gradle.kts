@@ -1,6 +1,5 @@
 import java.util.Properties
 import java.io.FileInputStream
-import org.gradle.api.GradleException
 
 plugins {
     id("com.android.application")
@@ -45,26 +44,32 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            if (!keystorePropertiesFile.exists()) {
-                throw GradleException("key.properties file not found at ${keystorePropertiesFile.absolutePath}")
+        // FIX: the build used to throw when key.properties was missing, which
+        // broke every CI build and even local debug builds on a fresh clone.
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias") as String
+                keyPassword = keystoreProperties.getProperty("keyPassword") as String
+                storeFile = file(keystoreProperties.getProperty("storeFile") as String)
+                storePassword = keystoreProperties.getProperty("storePassword") as String
             }
-            keyAlias = keystoreProperties.getProperty("keyAlias") as String
-            keyPassword = keystoreProperties.getProperty("keyPassword") as String
-            val storeFilePath = keystoreProperties.getProperty("storeFile") as String
-            storeFile = file(storeFilePath)
-            storePassword = keystoreProperties.getProperty("storePassword") as String
         }
     }
 
     buildTypes {
         release {
-            // Disabled to prevent JVM Out Of Memory (OOM) crashes on Windows.
-            // Flutter AOT compilation natively protects the Dart code.
             isMinifyEnabled = true
             isShrinkResources = true
-            
-            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                // Unsigned-for-Play fallback so CI can still verify the build.
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
