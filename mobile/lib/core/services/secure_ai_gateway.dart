@@ -173,6 +173,7 @@ class SecureAIGateway {
             "Session expired. Please restart the app to reconnect securely.",
           );
         case 'resource-exhausted':
+          // Safely intercept quota/billing errors mapped by the backend to present a user-friendly message.
           throw Exception(
             "Service is busy with high traffic. Please try again in a moment.",
           );

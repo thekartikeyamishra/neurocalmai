@@ -61,8 +61,8 @@ android {
         release {
             // Disabled to prevent JVM Out Of Memory (OOM) crashes on Windows.
             // Flutter AOT compilation natively protects the Dart code.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             
             signingConfig = signingConfigs.getByName("release")
         }

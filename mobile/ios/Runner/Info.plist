@@ -18,12 +18,14 @@
 		<string>NeuroCalm AI</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
+
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>audio</string>
 			<string>fetch</string>
 			<string>remote-notification</string>
 		</array>
+
 		<key>CFBundleShortVersionString</key>
 		<string>$(FLUTTER_BUILD_NAME)</string>
 		<key>CFBundleSignature</key>
@@ -32,6 +34,7 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>
@@ -55,12 +58,37 @@
 		</dict>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
+
+		<!-- Google Sign-In Requirements -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<!-- IMPORTANT: Replace this value with the REVERSED_CLIENT_ID found in your ios/Runner/GoogleService-Info.plist -->
+					<string>com.googleusercontent.apps.YOUR-REVERSED-CLIENT-ID-HERE</string>
+				</array>
+			</dict>
+		</array>
+
+		<!-- Hardware Privacy Descriptions -->
 		<key>NSMicrophoneUsageDescription</key>
 		<string>NeuroCalm needs microphone access to process your voice therapy sessions securely. Audio never leaves the device unless synced.</string>
 		<key>NSCameraUsageDescription</key>
 		<string>NeuroCalm requires camera access for local micro-expression analysis. Images are processed on-device and never saved.</string>
+
+		<!-- Geolocator Privacy Descriptions for Community Hubs -->
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>NeuroCalm requires location access to connect you with nearby Grounding Circles. Your precise coordinates are heavily truncated before use to guarantee anonymity.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>NeuroCalm requires location access to securely verify your presence in local Grounding Circles.</string>
+
+		<!-- Google AdMob Identifier -->
 		<key>GADApplicationIdentifier</key>
 		<string>ca-app-pub-4557897331416844~2962544256</string>
+
 		<key>UILaunchStoryboardName</key>
 		<string>LaunchScreen</string>
 		<key>UIMainStoryboardFile</key>
